@@ -1,0 +1,6 @@
+{
+  "name": "MCQ Hero Admin",
+  "description": "Premium full-featured master admin dashboard for MCQ Hero exams, groups, live courses, automatic AI questions, and payments.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
