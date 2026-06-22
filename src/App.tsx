@@ -109,7 +109,8 @@ export default function App() {
     telegramChatId: "",
     enabled: false,
     soundEnabled: true,
-    webhookUrl: ""
+    webhookUrl: "",
+    androidFcmEnabled: false
   });
 
   const [dbLoading, setDbLoading] = useState(false);
@@ -165,17 +166,21 @@ export default function App() {
   // Setup Android Native Push notifications (FCM) if the logged-in user is an admin/moderator
   useEffect(() => {
     if (userProfile && (userProfile.role === "admin" || userProfile.role === "moderator")) {
-      const initPush = async () => {
-        try {
-          const { initPushNotifications } = await import("./lib/pushNotifications");
-          await initPushNotifications(userProfile.uid, userProfile.email);
-        } catch (err) {
-          console.warn("Failed to load native push notification system module:", err);
-        }
-      };
-      initPush();
+      if (notifConfig.androidFcmEnabled) {
+        const initPush = async () => {
+          try {
+            const { initPushNotifications } = await import("./lib/pushNotifications");
+            await initPushNotifications(userProfile.uid, userProfile.email);
+          } catch (err) {
+            console.warn("Failed to load native push notification system module:", err);
+          }
+        };
+        initPush();
+      } else {
+        console.log("Android Native FCM notifications are disabled by configuration. Skipping registration to prevent startup crashes on devices without google-services.json.");
+      }
     }
-  }, [userProfile]);
+  }, [userProfile, notifConfig.androidFcmEnabled]);
 
   // Real-time listen for App Config & Maintenance mode (instantly kicks out non-admin users)
   useEffect(() => {
@@ -402,7 +407,8 @@ export default function App() {
               telegramChatId: nd.telegramChatId || "",
               enabled: nd.enabled || false,
               soundEnabled: nd.soundEnabled !== false,
-              webhookUrl: nd.webhookUrl || ""
+              webhookUrl: nd.webhookUrl || "",
+              androidFcmEnabled: nd.androidFcmEnabled || false
             });
           }
         } catch (e: any) {

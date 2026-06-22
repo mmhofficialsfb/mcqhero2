@@ -315,6 +315,7 @@ export default function BulletinsAndSettings({
   const [tgEnabled, setTgEnabled] = useState(false);
   const [soundAlert, setSoundAlert] = useState(true);
   const [webhUrl, setWebhUrl] = useState("");
+  const [androidFcmEnabled, setAndroidFcmEnabled] = useState(false);
 
   // 11. Custom API Base URL for Android Studio / Mobile
   const [customApiUrl, setCustomApiUrl] = useState("");
@@ -465,6 +466,7 @@ export default function BulletinsAndSettings({
           setTgEnabled(data.enabled || false);
           setSoundAlert(data.soundEnabled !== false);
           setWebhUrl(data.webhookUrl || "");
+          setAndroidFcmEnabled(data.androidFcmEnabled || false);
         }
       } catch (e) {
         console.warn("Failed to load notification settings:", e);
@@ -507,6 +509,7 @@ export default function BulletinsAndSettings({
         enabled: tgEnabled,
         soundEnabled: soundAlert,
         webhookUrl: webhUrl.trim(),
+        androidFcmEnabled: androidFcmEnabled,
         updatedAt: serverTimestamp()
       });
       alert("মোবাইল নোটিফিকেশন কনফিগারেশন সফলভাবে আপডেট করা হয়েছে!");
@@ -2460,6 +2463,21 @@ export default function BulletinsAndSettings({
                     checked={soundAlert}
                     onChange={(e) => setSoundAlert(e.target.checked)}
                     className="w-4 h-4 cursor-pointer accent-purple-500"
+                  />
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-slate-705/30">
+                  <div className="pr-4">
+                    <span className="text-slate-300 text-xs font-semibold block text-amber-400">অ্যান্ড্রয়েড পুশ নোটিফিকেশন (FCM Native Push)</span>
+                    <p className="text-[10px] text-slate-500 leading-normal">
+                      অ্যান্ড্রয়েড ডিভাইসে সরাসরি পুশ নোটিফিকেশন পাঠাতে এটি ব্যবহার করুন। <strong className="text-red-400">গুরুত্বপূর্ণ সতর্কতা:</strong> আপনার নিজস্ব অ্যান্ড্রয়েড এপের প্রজেক্টে <code className="bg-slate-900 px-1 py-0.5 rounded text-[9px] text-slate-300 font-mono">google-services.json</code> ফাইলটি ডাউনলোড করে সেটআপ করা না থাকলে এটি অন করার ফলে অ্যাপ ক্র্যাশ করে বন্ধ হয়ে যেতে পারে।
+                    </p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={androidFcmEnabled}
+                    onChange={(e) => setAndroidFcmEnabled(e.target.checked)}
+                    className="w-4 h-4 cursor-pointer accent-amber-500"
                   />
                 </div>
               </div>
