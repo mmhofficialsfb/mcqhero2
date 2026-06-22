@@ -62,7 +62,7 @@ export default function SmartboardGenerator({
   const [slideTitle, setSlideTitle] = useState("আজকের স্মার্ট ক্লাস স্লাইড");
   const [slideFooter, setSlideFooter] = useState("MCQ HERO - স্মার্ট ক্লাস প্রেজেন্টেশন");
   const [fontSize, setFontSize] = useState<"normal" | "large" | "xlarge">("large");
-  const [slideTheme, setSlideTheme] = useState<"green" | "dark" | "light" | "indigo" | "sunset" | "ocean" | "royal" | "vintage">("green");
+  const [slideTheme, setSlideTheme] = useState<"green" | "dark" | "light" | "indigo" | "sunset" | "ocean" | "royal" | "vintage" | "smartboard">("smartboard");
   const [showAnswerInit, setShowAnswerInit] = useState(false);
   const [showExplanationInit, setShowExplanationInit] = useState(false);
 
@@ -247,6 +247,7 @@ export default function SmartboardGenerator({
         const isOcean = slideTheme === "ocean";
         const isRoyal = slideTheme === "royal";
         const isVintage = slideTheme === "vintage";
+        const isSmartboard = slideTheme === "smartboard";
 
         let bgColor = "#0D2C22";
         let textColor = "#FFFBEB";
@@ -262,6 +263,13 @@ export default function SmartboardGenerator({
           cardBorder = "#CBD5E1";
           cardBg = "#FFFDF9";
           qColor = "#0F172A";
+        } else if (isSmartboard) {
+          bgColor = "#e2ecf5";
+          textColor = "#1e293b";
+          titleColor = "#1e3a8a";
+          cardBorder = "#cbd5e1";
+          cardBg = "#ffffff";
+          qColor = "#0f172a";
         } else if (isDark) {
           bgColor = "#090D16";
           textColor = "#F1F5F9";
@@ -477,52 +485,142 @@ export default function SmartboardGenerator({
             const isCorrect = q.correctAnswer === (oIdx + 1);
             const shouldHighlight = showAnswerInit && isCorrect;
 
-            const opBorder = shouldHighlight ? "#10B981" : cardBorder;
-            const opBg = shouldHighlight
-              ? (isLight ? "#ECFDF5" : "rgba(16, 185, 129, 0.12)")
-              : cardBg;
-            const opTextColor = shouldHighlight
-              ? (isLight ? "#047857" : "#34D399")
-              : "inherit";
-            const bubbleBg = shouldHighlight ? "#10B981" : "rgba(0, 0, 0, 0.1)";
-            const bubbleColor = shouldHighlight ? "#FFFFFF" : "inherit";
-
-            optionsHtml += `
-              <div style="
-                display: flex;
-                align-items: center;
-                gap: 15px;
-                padding: 12px 20px;
-                border-radius: 12px;
-                border: 4px solid ${opBorder};
-                background-color: ${opBg};
-                color: ${opTextColor};
-                min-height: 70px;
-                box-sizing: border-box;
-                text-align: left;
-              ">
+            if (slideTheme === "smartboard") {
+              optionsHtml += `
                 <div style="
-                  width: 76px;
-                  height: 76px;
-                  border-radius: 50%;
+                  position: relative;
                   display: flex;
                   align-items: center;
-                  justify-content: center;
-                  font-size: 46px;
-                  font-weight: 900;
-                  border: 3px solid currentColor;
-                  background-color: ${bubbleBg};
-                  color: ${bubbleColor};
-                  flex-shrink: 0;
-                  line-height: 1;
-                  text-align: center;
+                  justify-content: space-between;
+                  padding: 10px 25px;
+                  border-radius: 9999px;
+                  border: 4px solid ${shouldHighlight ? "#22c55e" : "#1e40af"};
+                  background: ${shouldHighlight ? "linear-gradient(90deg, #1e3a8a 0%, #15803d 100%)" : "linear-gradient(180deg, #132147 0%, #1e4090 100%)"};
+                  box-shadow: 
+                    0 6px 12px rgba(0, 0, 0, 0.25),
+                    inset 0 1px 3px rgba(255, 255, 255, 0.15);
+                  min-height: 85px;
                   box-sizing: border-box;
+                  color: #ffffff;
                 ">
-                  ${bengaliLabels[oIdx]}
+                  <div style="display: flex; align-items: center; gap: 18px;">
+                    <div style="
+                      width: 58px;
+                      height: 58px;
+                      border-radius: 50%;
+                      border: 3px solid #ffffff;
+                      background-color: ${shouldHighlight ? "#22c55e" : "rgba(255, 255, 255, 0.15)"};
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      font-size: 28px;
+                      font-weight: 900;
+                      color: #ffffff;
+                      flex-shrink: 0;
+                    ">
+                      (${bengaliLabels[oIdx]})
+                    </div>
+                    <div style="
+                      font-size: 34px; 
+                      font-weight: 700; 
+                      color: #ffffff;
+                      text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+                    ">
+                      ${escapeHtml(option)}
+                    </div>
+                  </div>
+
+                  ${shouldHighlight ? `
+                    <div style="display: flex; align-items: center; gap: 12px; margin-right: 15px;">
+                      <div style="
+                        width: 44px;
+                        height: 44px;
+                        border-radius: 50%;
+                        background-color: #22c55e;
+                        border: 3px solid #ffffff;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        color: #ffffff;
+                        font-size: 28px;
+                        font-weight: bold;
+                      ">
+                        ✔
+                      </div>
+
+                      <div style="
+                        position: absolute;
+                        right: -30px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        background-color: #15803d;
+                        border: 2px solid #22c55e;
+                        color: #ffffff;
+                        font-size: 16px;
+                        font-weight: 800;
+                        padding: 6px 12px;
+                        border-radius: 8px 0 0 8px;
+                        display: flex;
+                        align-items: center;
+                        gap: 4px;
+                        box-shadow: -3px 4px 8px rgba(0,0,0,0.3);
+                        z-index: 10;
+                      ">
+                        <span>সঠিক উত্তর</span>
+                        <span style="font-size:12px;">▶</span>
+                      </div>
+                    </div>
+                  ` : ""}
                 </div>
-                <div style="font-size: 46px; font-weight: 600; line-height: 1.45;">${escapeHtml(option)}</div>
-              </div>
-            `;
+              `;
+            } else {
+              const opBorder = shouldHighlight ? "#10B981" : cardBorder;
+              const opBg = shouldHighlight
+                ? (isLight ? "#ECFDF5" : "rgba(16, 185, 129, 0.12)")
+                : cardBg;
+              const opTextColor = shouldHighlight
+                ? (isLight ? "#047857" : "#34D399")
+                : "inherit";
+              const bubbleBg = shouldHighlight ? "#10B981" : "rgba(0, 0, 0, 0.1)";
+              const bubbleColor = shouldHighlight ? "#FFFFFF" : "inherit";
+
+              optionsHtml += `
+                <div style="
+                  display: flex;
+                  align-items: center;
+                  gap: 15px;
+                  padding: 12px 20px;
+                  border-radius: 12px;
+                  border: 4px solid ${opBorder};
+                  background-color: ${opBg};
+                  color: ${opTextColor};
+                  min-height: 70px;
+                  box-sizing: border-box;
+                  text-align: left;
+                ">
+                  <div style="
+                    width: 76px;
+                    height: 76px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 46px;
+                    font-weight: 900;
+                    border: 3px solid currentColor;
+                    background-color: ${bubbleBg};
+                    color: ${bubbleColor};
+                    flex-shrink: 0;
+                    line-height: 1;
+                    text-align: center;
+                    box-sizing: border-box;
+                  ">
+                    ${bengaliLabels[oIdx]}
+                  </div>
+                  <div style="font-size: 46px; font-weight: 600; line-height: 1.45;">${escapeHtml(option)}</div>
+                </div>
+              `;
+            }
           }
 
           // Build explanation element if needed
@@ -546,115 +644,279 @@ export default function SmartboardGenerator({
             `;
           }
 
-          slideHtml = `
-            <div style="
-              width: 1920px;
-              height: 1080px;
-              padding: 85px 120px;
-              display: flex;
-              flex-direction: column;
-              justify-content: space-between;
-              box-sizing: border-box;
-              background-color: ${bgColor};
-              color: ${textColor};
-              font-family: 'Inter', system-ui, -apple-system, sans-serif;
-              text-align: left;
-             border-radius: 0;
-            ">
-              <!-- Header (Empty header spacer, no text displayed) -->
+               if (isSmartboard) {
+            slideHtml = `
               <div style="
-                border-bottom: 5px solid ${isLight || isVintage ? cardBorder : "rgba(255, 255, 255, 0.15)"};
-                padding-bottom: 30px;
-                margin-bottom: 30px;
-              ">
-              </div>
-
-              <!-- Split: Left Question and Writing canvas, Right 4 MCQ options. (Ample blank slate on left!) -->
-              <div style="
-                flex-grow: 1;
+                width: 1920px;
+                height: 1080px;
+                padding: 40px 50px;
                 display: flex;
-                flex-direction: row;
-                gap: 50px;
-                align-items: stretch;
+                flex-direction: column;
                 justify-content: space-between;
-                min-height: 520px;
                 box-sizing: border-box;
+                background-color: #e2ecf5;
+                background-image: 
+                  linear-gradient(rgba(0, 102, 204, 0.08) 1.5px, transparent 1px),
+                  linear-gradient(90deg, rgba(0, 102, 204, 0.08) 1.5px, transparent 1px);
+                background-size: 32px 32px;
+                font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                text-align: left;
+                border-radius: 0;
+                position: relative;
+                overflow: hidden;
               ">
-                <!-- Left Space: question on top, extremely spacious empty workspace block below for writing on interactive board -->
+                <!-- Top Header: Metallic Banner (from screenshot) -->
                 <div style="
-                  flex: 1;
+                  width: 100%;
+                  height: 75px;
+                  background: linear-gradient(180deg, #2a333f 0%, #151a21 100%);
+                  border: 3px solid #cca44a;
+                  border-bottom: 5px solid #a37c2d;
+                  border-radius: 14px;
+                  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.3);
                   display: flex;
-                  flex-direction: column;
-                  justify-content: space-between;
-                  gap: 25px;
-                  box-sizing: border-box;
-                  text-align: left;
-                ">
-                  <!-- Colorful background shape wrapper for question -->
-                  <div style="
-                    background-color: ${isLight || isVintage ? "rgba(217, 119, 6, 0.08)" : "rgba(45, 212, 191, 0.12)"};
-                    border-left: 12px solid ${isLight || isVintage ? "#D97706" : "#2DD4BF"};
-                    padding: 30px 45px;
-                    border-radius: 0 24px 24px 0;
-                    box-sizing: border-box;
-                  ">
-                    <h1 style="
-                      font-size: 46px;
-                      font-weight: 800;
-                      line-height: 1.45;
-                      margin: 0;
-                      color: ${isLight || isVintage ? "#2F2117" : "#FFFFFF"};
-                    ">
-                      ${i + 1}. ${escapeHtml(q.question)}
-                    </h1>
-                  </div>
-
-                  <!-- Board writing space for smartboards/markers (Completely blank plain space) -->
-                  <div style="
-                    flex-grow: 1;
-                    min-height: 280px;
-                    box-sizing: border-box;
-                  ">
-                  </div>
-                </div>
-
-                <!-- Right Space: options vertically stacked (occupies 28% width) -->
-                <div style="
-                  width: 28%;
-                  display: flex;
-                  flex-direction: column;
+                  align-items: center;
                   justify-content: center;
-                  gap: 16px;
+                  position: relative;
+                ">
+                  <!-- decorative trims -->
+                  <div style="position: absolute; left: 0; top: 0; bottom: 0; width: 60px; background: linear-gradient(90deg, #a37c2d, transparent); opacity: 0.3;"></div>
+                  <div style="position: absolute; right: 0; top: 0; bottom: 0; width: 60px; background: linear-gradient(-90deg, #a37c2d, transparent); opacity: 0.3;"></div>
+                  
+                  <span style="
+                    font-size: 32px; 
+                    font-weight: 800; 
+                    color: #ffffff; 
+                    text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+                    letter-spacing: 1px;
+                  ">
+                    ${escapeHtml(slideTitle)}
+                  </span>
+                </div>
+
+                <!-- Centered Question Box: Double gold border bracketed (from screenshot) -->
+                <div style="
+                  margin: 20px auto 0 auto;
+                  width: 90%;
+                  background: linear-gradient(180deg, #0f2d5e 0%, #05183a 100%);
+                  border: 4px double #cca44a;
+                  border-radius: 20px;
+                  padding: 24px 35px;
+                  box-shadow: 0 8px 20px rgba(0,0,0,0.35), inset 0 0 10px rgba(255,255,255,0.15);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  text-align: center;
+                ">
+                  <h1 style="
+                    font-size: 38px;
+                    font-weight: 800;
+                    line-height: 1.45;
+                    margin: 0;
+                    color: #ffffff;
+                    text-shadow: 0 2px 3px rgba(0,0,0,0.7);
+                  ">
+                    প্রশ্ন ${i + 1}. ${escapeHtml(q.question)}
+                  </h1>
+                </div>
+
+                <!-- Main Body: grid split whiteboard and options list -->
+                <div style="
+                  flex-grow: 1;
+                  display: flex;
+                  flex-direction: row;
+                  gap: 36px;
+                  margin-top: 25px;
+                  align-items: stretch;
+                  box-sizing: border-box;
+                  min-height: 520px;
+                ">
+                  <!-- Left side: White practice board (with grid math lines) -->
+                  <div style="
+                    flex: 1.15;
+                    background-color: #f8fafc;
+                    border: 4px solid #a0aec0;
+                    border-radius: 16px;
+                    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.08);
+                    background-image: 
+                      linear-gradient(rgba(0, 102, 204, 0.05) 1px, transparent 1px),
+                      linear-gradient(90deg, rgba(0, 102, 204, 0.05) 1px, transparent 1px);
+                    background-size: 26px 26px;
+                    position: relative;
+                    box-sizing: border-box;
+                    padding: 24px;
+                  ">
+                    <span style="
+                      position: absolute;
+                      bottom: 15px;
+                      left: 15px;
+                      font-size: 11px;
+                      color: #a0aec0;
+                      font-weight: bold;
+                      letter-spacing: 1px;
+                    ">
+                      📐 WRITING CANVAS (GRID)
+                    </span>
+                    <span style="
+                      position: absolute;
+                      top: 15px;
+                      right: 15px;
+                      font-size: 11px;
+                      color: #cbd5e1;
+                      font-weight: bold;
+                    ">
+                      RESOLVED
+                    </span>
+                  </div>
+
+                  <!-- Right side: vertical capsules list -->
+                  <div style="
+                    width: 32%;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    gap: 16px;
+                    box-sizing: border-box;
+                  ">
+                    ${optionsHtml}
+                  </div>
+                </div>
+
+                ${explanationHtml ? `
+                  <div style="margin-top: 15px; box-sizing: border-box;">
+                    ${explanationHtml}
+                  </div>
+                ` : ""}
+
+                <!-- Footer style (from screenshot but elegant branding) -->
+                <div style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-top: 2px solid rgba(0,0,0,0.06);
+                  padding-top: 15px;
+                  margin-top: 15px;
+                ">
+                  <span style="font-size: 18px; font-weight: bold; color: #4a5568;">
+                    ${escapeHtml(slideFooter)}
+                  </span>
+                  <span style="font-size: 18px; font-weight: bold; color: #a0aec0;">
+                    SMARTBOARD COMPATIBLE • ১৬:৯
+                  </span>
+                </div>
+              </div>
+            `;
+          } else {
+            slideHtml = `
+              <div style="
+                width: 1920px;
+                height: 1080px;
+                padding: 85px 120px;
+                display: flex;
+                flex-direction: column;
+                justify-content: space-between;
+                box-sizing: border-box;
+                background-color: ${bgColor};
+                color: ${textColor};
+                font-family: 'Inter', system-ui, -apple-system, sans-serif;
+                text-align: left;
+                border-radius: 0;
+              ">
+                <!-- Header (Empty header spacer, no text displayed) -->
+                <div style="
+                  border-bottom: 5px solid ${isLight || isVintage ? cardBorder : "rgba(255, 255, 255, 0.15)"};
+                  padding-bottom: 30px;
+                  margin-bottom: 30px;
+                ">
+                </div>
+
+                <!-- Split: Left Question and Writing canvas, Right 4 MCQ options. (Ample blank slate on left!) -->
+                <div style="
+                  flex-grow: 1;
+                  display: flex;
+                  flex-direction: row;
+                  gap: 50px;
+                  align-items: stretch;
+                  justify-content: space-between;
+                  min-height: 520px;
                   box-sizing: border-box;
                 ">
-                  ${optionsHtml}
+                  <!-- Left Space: question on top, extremely spacious empty workspace block below for writing on interactive board -->
+                  <div style="
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
+                    gap: 25px;
+                    box-sizing: border-box;
+                    text-align: left;
+                  ">
+                    <!-- Colorful background shape wrapper for question -->
+                    <div style="
+                      background-color: ${isLight || isVintage ? "rgba(217, 119, 6, 0.08)" : "rgba(45, 212, 191, 0.12)"};
+                      border-left: 12px solid ${isLight || isVintage ? "#D97706" : "#2DD4BF"};
+                      padding: 30px 45px;
+                      border-radius: 0 24px 24px 0;
+                      box-sizing: border-box;
+                    ">
+                      <h1 style="
+                        font-size: 46px;
+                        font-weight: 800;
+                        line-height: 1.45;
+                        margin: 0;
+                        color: ${isLight || isVintage ? "#2F2117" : "#FFFFFF"};
+                      ">
+                        ${i + 1}. ${escapeHtml(q.question)}
+                      </h1>
+                    </div>
+
+                    <!-- Board writing space for smartboards/markers (Completely blank plain space) -->
+                    <div style="
+                      flex-grow: 1;
+                      min-height: 280px;
+                      box-sizing: border-box;
+                    ">
+                    </div>
+                  </div>
+
+                  <!-- Right Space: options vertically stacked (occupies 28% width) -->
+                  <div style="
+                    width: 28%;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                    gap: 16px;
+                    box-sizing: border-box;
+                  ">
+                    ${optionsHtml}
+                  </div>
+                </div>
+
+                ${explanationHtml ? `
+                  <div style="margin-top: 20px; box-sizing: border-box;">
+                    ${explanationHtml}
+                  </div>
+                ` : ""}
+
+                <!-- Footer with dynamic footer text (No page numbering digits!) -->
+                <div style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  border-top: 3px solid ${isLight || isVintage ? cardBorder : "rgba(255, 255, 255, 0.1)"};
+                  padding-top: 30px;
+                  margin-top: 30px;
+                ">
+                  <span style="font-size: 20px; font-weight: bold; opacity: 0.6; letter-spacing: 0.5px;">
+                    ${escapeHtml(slideFooter)}
+                  </span>
+                  <span style="font-size: 20px; font-weight: bold; opacity: 0.6;">
+                    PREMIUM QUALITY EDUCATION
+                  </span>
                 </div>
               </div>
-
-              ${explanationHtml ? `
-                <div style="margin-top: 20px; box-sizing: border-box;">
-                  ${explanationHtml}
-                </div>
-              ` : ""}
-
-              <!-- Footer with dynamic footer text (No page numbering digits!) -->
-              <div style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-top: 3px solid ${isLight || isVintage ? cardBorder : "rgba(255, 255, 255, 0.1)"};
-                padding-top: 30px;
-                margin-top: 30px;
-              ">
-                <span style="font-size: 20px; font-weight: bold; opacity: 0.6; letter-spacing: 0.5px;">
-                  ${escapeHtml(slideFooter)}
-                </span>
-                <span style="font-size: 20px; font-weight: bold; opacity: 0.6;">
-                  PREMIUM QUALITY EDUCATION
-                </span>
-              </div>
-            </div>
-          `;
+            `;
+          }
         }
 
         // Create temporary offscreen workspace DOM nodes
@@ -748,6 +1010,8 @@ export default function SmartboardGenerator({
         return "bg-gradient-to-br from-[#172554] via-[#1e3a8a] to-[#312e81] border-[#3b82f6]/20 text-blue-100 font-sans shadow-blue-950/40";
       case "vintage":
         return "bg-[#F4EBE1] border-[#E3D4C1] text-[#2F2117] font-sans shadow-amber-950/10";
+      case "smartboard":
+        return "bg-[#e2ecf5] border-slate-300 text-slate-800 font-sans shadow-sm";
     }
   };
 
@@ -1332,6 +1596,16 @@ export default function SmartboardGenerator({
                     }`}
                   >
                     🟠 সানসেট রেড
+                  </button>
+                  <button
+                    onClick={() => setSlideTheme("smartboard")}
+                    className={`px-1.5 py-1.5 rounded-lg text-[10px] font-bold border transition-all truncate ${
+                      slideTheme === "smartboard"
+                        ? "bg-[#1d4ed8]/20 text-[#1d4ed8] border-blue-500 font-extrabold"
+                        : "bg-slate-905 text-slate-300 border-slate-800 hover:text-white"
+                    }`}
+                  >
+                    🌟 স্মার্টবোর্ড খাতা
                   </button>
                   <button
                     onClick={() => setSlideTheme("ocean")}

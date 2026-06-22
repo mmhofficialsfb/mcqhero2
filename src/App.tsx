@@ -19,7 +19,8 @@ import {
   AlertTriangle,
   Calendar,
   Flag,
-  ShieldAlert
+  ShieldAlert,
+  PhoneCall
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -52,6 +53,7 @@ import SmartboardGenerator from "./components/SmartboardGenerator";
 import ExamRoutineManage from "./components/ExamRoutineManage";
 import QuestionReportManage from "./components/QuestionReportManage";
 import ActivityLogManage, { logActivity } from "./components/ActivityLogManage";
+import ContactManage from "./components/ContactManage";
 
 // Interfaces
 import {
@@ -71,7 +73,7 @@ import {
 export default function App() {
   // Navigation & UI States
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "questions" | "users" | "resources" | "billing" | "exams" | "settings" | "smartboard" | "routine" | "reports"
+    "dashboard" | "questions" | "users" | "resources" | "billing" | "exams" | "settings" | "smartboard" | "routine" | "reports" | "contact"
   >("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -95,9 +97,11 @@ export default function App() {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
   const [premiumPlans, setPremiumPlans] = useState<PremiumPlan[]>([]);
   const [questionReports, setQuestionReports] = useState<QuestionReport[]>([]);
+  const [supportMessages, setSupportMessages] = useState<any[]>([]);
+  const [activePaymentAlerts, setActivePaymentAlerts] = useState<any[]>([]);
 
   // Global settings toggles in Firebase
-  const [globalNotice, setGlobalNotice] = useState({ title: "", message: "", active: false });
+  const [globalNotice, setGlobalNotice] = useState({ title: "", message: "", active: false, freeUserQuestionLimit: 20, dailyQuestionLimit: 15 });
   const [maintenanceMode, setMaintenanceMode] = useState(false);
   const [showAdminLoginUnderMaint, setShowAdminLoginUnderMaint] = useState(false);
   const [notifConfig, setNotifConfig] = useState({
@@ -158,6 +162,21 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // Setup Android Native Push notifications (FCM) if the logged-in user is an admin/moderator
+  useEffect(() => {
+    if (userProfile && (userProfile.role === "admin" || userProfile.role === "moderator")) {
+      const initPush = async () => {
+        try {
+          const { initPushNotifications } = await import("./lib/pushNotifications");
+          await initPushNotifications(userProfile.uid, userProfile.email);
+        } catch (err) {
+          console.warn("Failed to load native push notification system module:", err);
+        }
+      };
+      initPush();
+    }
+  }, [userProfile]);
+
   // Real-time listen for App Config & Maintenance mode (instantly kicks out non-admin users)
   useEffect(() => {
     if (isSandboxMode) {
@@ -195,7 +214,9 @@ export default function App() {
         const updatedNotice = {
           title: ndata.title || "",
           message: ndata.message || "",
-          active: ndata.active || false
+          active: ndata.active || false,
+          freeUserQuestionLimit: typeof ndata.freeUserQuestionLimit === "number" ? ndata.freeUserQuestionLimit : (typeof ndata.free_user_limit === "number" ? ndata.free_user_limit : 20),
+          dailyQuestionLimit: typeof ndata.dailyQuestionLimit === "number" ? ndata.dailyQuestionLimit : 15
         };
         setGlobalNotice(updatedNotice);
         localStorage.setItem("local_global_notice", JSON.stringify(updatedNotice));
@@ -338,6 +359,14 @@ export default function App() {
           console.warn("qbank_reports collection failed to load:", err.message || err);
         }
 
+        // Support Messages
+        try {
+          const smSnap = await getDocs(collection(db, "support_messages"));
+          setSupportMessages(smSnap.docs.map((doc) => ({ ...doc.data(), id: doc.id })));
+        } catch (err: any) {
+          console.warn("support_messages collection failed to load:", err.message || err);
+        }
+
         // Load configs
         try {
           const noticeRef = await getDoc(doc(db, "settings", "global_notice"));
@@ -346,7 +375,9 @@ export default function App() {
             setGlobalNotice({
               title: ndata.title || "",
               message: ndata.message || "",
-              active: ndata.active || false
+              active: ndata.active || false,
+              freeUserQuestionLimit: typeof ndata.freeUserQuestionLimit === "number" ? ndata.freeUserQuestionLimit : (typeof ndata.free_user_limit === "number" ? ndata.free_user_limit : 20),
+              dailyQuestionLimit: typeof ndata.dailyQuestionLimit === "number" ? ndata.dailyQuestionLimit : (typeof ndata.daily_question_limit === "number" ? ndata.daily_question_limit : 15)
             });
           }
         } catch (e: any) {
@@ -430,7 +461,91 @@ export default function App() {
     return unsubscribe;
   }, [currentUser, isSandboxMode, notifConfig]);
 
+  // Real-time support messages listener for live notifications and badge updates
+  useEffect(() => {
+    if (!currentUser || isSandboxMode) return;
+
+    const collectionNames = [
+      "support_tickets",
+      "support_messages", 
+      "messages", 
+      "support", 
+      "contacts", 
+      "contact_messages", 
+      "user_messages"
+    ];
+    const unsubscribes: (() => void)[] = [];
+    const collectionsData: { [colName: string]: any[] } = {};
+    let isInitial = true;
+
+    collectionNames.forEach((colName) => {
+      const unsub = onSnapshot(
+        query(collection(db, colName), limit(100)),
+        (snapshot) => {
+          const list: any[] = [];
+          snapshot.forEach((doc) => {
+            list.push({ ...doc.data(), id: doc.id, _collection: colName });
+          });
+
+          // Trigger chime & toast alerts on new customer support inquiries from user app
+          snapshot.docChanges().forEach((change) => {
+            if (change.type === "added" && !isInitial) {
+              const mData = change.doc.data();
+              if (notifConfig.soundEnabled) {
+                try {
+                  const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2013/2013-84.wav");
+                  audio.play();
+                } catch (err) {
+                  console.warn("Chime playback failed:", err);
+                }
+              }
+              if ("Notification" in window && Notification.permission === "granted") {
+                new Notification("নতুন কাস্টমার সাপোর্ট মেসেজ!", {
+                  body: `উৎস: ${colName}\nপ্রেরক: ${mData.name || mData.username || mData.fullName || "অজ্ঞাতনামা শিক্ষার্থী"}\nবিষয়: ${mData.subject || mData.topic || mData.title || "সাপোর্ট"}\nবার্তা: ${mData.message || mData.msg || mData.text || ""}`,
+                  icon: "https://cdn-icons-png.flaticon.com/512/3114/3114810.png"
+                });
+              }
+            }
+          });
+
+          collectionsData[colName] = list;
+
+          // Merge all
+          const mergedMap = new Map<string, any>();
+          collectionNames.forEach((cn) => {
+            if (collectionsData[cn]) {
+              collectionsData[cn].forEach((item) => {
+                mergedMap.set(item.id, item);
+              });
+            }
+          });
+
+          setSupportMessages(Array.from(mergedMap.values()));
+          isInitial = false;
+        },
+        (error) => {
+          console.warn(`Realtime snapshot query on optional '${colName}' failed:`, error.message || error);
+        }
+      );
+      unsubscribes.push(unsub);
+    });
+
+    return () => {
+      unsubscribes.forEach((unsub) => unsub());
+    };
+  }, [currentUser, isSandboxMode, notifConfig]);
+
   const triggerNewPaymentNotification = async (payment: Payment) => {
+    // 0. Update the in-app active payment alerts state to show a beautiful interactive overlay banner
+    setActivePaymentAlerts(prev => [
+      {
+        id: Date.now() + Math.random(),
+        payment,
+        timestamp: new Date()
+      },
+      ...prev
+    ]);
+
     // 1. Play beautiful crisp check chime sound!
     if (notifConfig.soundEnabled) {
       try {
@@ -488,6 +603,14 @@ export default function App() {
       } catch (err) {
         console.error("Failed to fire custom Webhook:", err);
       }
+    }
+
+    // 5. Capacitor Native Local Notification Trigger (for Android devices)
+    try {
+      const { triggerLocalNativePaymentNotification } = await import("./lib/pushNotifications");
+      await triggerLocalNativePaymentNotification(payment);
+    } catch (err) {
+      console.warn("Could not fire native Android alert: ", err);
     }
   };
 
@@ -712,7 +835,7 @@ export default function App() {
 
     let storedNotice = localStorage.getItem("local_global_notice");
     if (!storedNotice) {
-      const defaultNotice = { title: "জরুরি বিজ্ঞপ্তি", message: "আজ রাতে সার্ভার আপগ্রেড করা হবে।", active: true };
+      const defaultNotice = { title: "জরুরি বিজ্ঞপ্তি", message: "আজ রাতে সার্ভার আপগ্রেড করা হবে।", active: true, freeUserQuestionLimit: 20, dailyQuestionLimit: 15 };
       localStorage.setItem("local_global_notice", JSON.stringify(defaultNotice));
       storedNotice = JSON.stringify(defaultNotice);
     }
@@ -787,6 +910,35 @@ export default function App() {
       storedReports = JSON.stringify(defaultReports);
     }
     setQuestionReports(JSON.parse(storedReports));
+
+    let storedMsgs = localStorage.getItem("local_support_messages");
+    if (!storedMsgs) {
+      const defaultMsgs = [
+        {
+          id: "msg-1",
+          name: "রাকিব হাসান",
+          email: "rakib@gmail.com",
+          phone: "01712345678",
+          subject: "পেমেন্ট সমস্যা",
+          message: "আমি বিকাশ দিয়ে ২৫০ টাকা পাঠিয়েছিলাম কিন্তু প্রিমিয়াম মেম্বারশিপ অ্যাক্টিভ হয়নি। ট্রানজেকশন আইডি: 8HDF99KLE",
+          status: "pending",
+          createdAt: { seconds: Date.now() / 1000 - 3600 }
+        },
+        {
+          id: "msg-2",
+          name: "সুমাইয়া আক্তার",
+          email: "sumaiya@yahoo.com",
+          phone: "01998765432",
+          subject: "কোয়েশ্চন সংশোধন",
+          message: "বিসিএস প্রিলি গণিত পার্টের স্লাইড ৫ এ একটি ছোট টাইপো বা ভুলের রিপোর্ট আছে। দয়া করে দেখবেন।",
+          status: "resolved",
+          createdAt: { seconds: Date.now() / 1000 - 86450 }
+        }
+      ];
+      localStorage.setItem("local_support_messages", JSON.stringify(defaultMsgs));
+      storedMsgs = JSON.stringify(defaultMsgs);
+    }
+    setSupportMessages(JSON.parse(storedMsgs));
 
     let storedMaint = localStorage.getItem("local_maintenance_mode");
     if (!storedMaint) {
@@ -871,6 +1023,7 @@ export default function App() {
     { id: "billing", label: "পেমেন্ট অনুমোদন", icon: CreditCard, badge: payments.filter(p => p.status === "pending" || !p.status).length },
     { id: "exams", label: "লাইভ মডেল টেস্ট", icon: Timer },
     { id: "routine", label: "পরীক্ষার রুটিন", icon: Calendar },
+    { id: "contact", label: "সরাসরি যোগাযোগ ও সাপোর্ট", icon: PhoneCall, badge: supportMessages.filter(m => m.status === "pending").length },
     { id: "settings", label: "গ্লোবাল সেটিংস", icon: Settings },
     { id: "logs", label: "অ্যাক্টিভিটি ও অডিট লগ", icon: ShieldAlert }
   ] as const;
@@ -1010,6 +1163,68 @@ export default function App() {
   // Dashboard layout configuration
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans leading-relaxed selection:bg-teal-500 selection:text-white">
+      {/* Floating Real-Time In-App Live Payment Alerts Overlay */}
+      <div className="fixed top-18 right-4 z-[9999] max-w-sm w-full pointer-events-none space-y-3">
+        <AnimatePresence>
+          {activePaymentAlerts.map((alertItem) => (
+            <motion.div
+              key={alertItem.id}
+              initial={{ opacity: 0, y: -20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="pointer-events-auto bg-slate-900/95 border border-amber-500/30 shadow-2xl rounded-2xl p-4 backdrop-blur-md flex gap-3 relative overflow-hidden text-left"
+            >
+              {/* Pulsing indicator decor */}
+              <div className="absolute top-0 left-0 w-1.5 h-full bg-amber-500 animate-pulse" />
+              
+              <div className="flex-1 space-y-1.5">
+                <div className="flex items-center gap-1.5 text-amber-400 text-xs font-bold font-display">
+                  <span className="flex h-2 w-2 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                  </span>
+                  নতুন পেমেন্ট রিকোয়েস্ট এসেছে!
+                </div>
+                <div className="text-[11px] text-slate-300 space-y-0.5 leading-normal">
+                  <div className="truncate"><span className="font-semibold text-slate-400">ইউজার:</span> {alertItem.payment.email}</div>
+                  <div><span className="font-semibold text-slate-400">প্ল্যান:</span> {alertItem.payment.planName || alertItem.payment.premiumPlan || "Standard Plan"}</div>
+                  <div><span className="font-semibold text-slate-400">মেথড/টাকা:</span> {alertItem.payment.method || "N/A"}{alertItem.payment.amount ? ` (${alertItem.payment.amount}৳)` : ""}</div>
+                </div>
+                <div className="pt-2 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setActiveTab("billing");
+                      setActivePaymentAlerts(prev => prev.filter(x => x.id !== alertItem.id));
+                    }}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold text-[10px] py-1.5 px-3 rounded-lg transition-all shadow-md shadow-amber-500/10 cursor-pointer text-center"
+                  >
+                    পেমেন্ট চেক করুন ➔
+                  </button>
+                  <button
+                    onClick={() => {
+                      setActivePaymentAlerts(prev => prev.filter(x => x.id !== alertItem.id));
+                    }}
+                    className="px-2.5 py-1.5 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-[10px] font-semibold cursor-pointer transition-all"
+                  >
+                    বাদ দিন
+                  </button>
+                </div>
+              </div>
+
+              {/* Close pin */}
+              <button
+                onClick={() => {
+                  setActivePaymentAlerts(prev => prev.filter(x => x.id !== alertItem.id));
+                }}
+                className="absolute top-2.5 right-2.5 text-slate-500 hover:text-slate-300 transition-colors pointer-events-auto cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </motion.div>
+          ))}
+        </AnimatePresence>
+      </div>
+
       {/* Top Header rail */}
       <header className="bg-slate-900/80 backdrop-blur-md border-b border-slate-800/80 sticky top-0 z-40 px-4 sm:px-6 h-[64px] flex justify-between items-center">
         <div className="flex items-center gap-3">
@@ -1159,6 +1374,7 @@ export default function App() {
                   examCount={exams.length}
                   highestScore={28.5}
                   averageScore={17.2}
+                  userProfile={userProfile}
                 />
               )}
 
@@ -1171,6 +1387,8 @@ export default function App() {
                   adminRole={userProfile?.role === "moderator" ? "moderator" : "admin"}
                   allowedCategories={userProfile?.allowedCategories}
                   isSandboxMode={isSandboxMode}
+                  userProfile={userProfile}
+                  globalNotice={globalNotice}
                 />
               )}
 
@@ -1234,6 +1452,7 @@ export default function App() {
                 <BulletinsAndSettings
                   categories={categories}
                   subcategories={subcategories}
+                  questions={questions}
                   courses={courses}
                   bulletins={bulletins}
                   coupons={coupons}
@@ -1242,6 +1461,14 @@ export default function App() {
                   maintenanceMode={maintenanceMode}
                   triggerReload={triggerReload}
                   isSandboxMode={isSandboxMode}
+                  onSimulateAlert={triggerNewPaymentNotification}
+                />
+              )}
+
+              {userProfile?.role !== "moderator" && activeTab === "contact" && (
+                <ContactManage
+                  isSandboxMode={isSandboxMode}
+                  triggerReload={triggerReload}
                 />
               )}
 

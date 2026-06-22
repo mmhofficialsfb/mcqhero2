@@ -5,6 +5,13 @@
  */
 export const resolveApiUrl = (path: string): string => {
   if (typeof window !== "undefined") {
+    // 1. If user set a custom API base URL in localStorage, always respect it
+    const customBase = window.localStorage.getItem("custom_api_base_url");
+    if (customBase) {
+      const cleanBase = customBase.trim().replace(/\/$/, "");
+      return `${cleanBase}${path.startsWith("/") ? path : "/" + path}`;
+    }
+
     const isLocal =
       window.location.protocol === "file:" ||
       window.location.hostname === "localhost" ||

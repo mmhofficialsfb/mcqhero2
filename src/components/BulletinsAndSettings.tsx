@@ -11,13 +11,19 @@ import {
   Trash2,
   Lock,
   Globe,
+  HelpCircle,
   Loader2,
   AlertTriangle,
   Smartphone,
   Volume2,
   Zap,
   CheckCircle,
-  XCircle
+  XCircle,
+  Edit2,
+  Eye,
+  EyeOff,
+  Copy,
+  Sparkles
 } from "lucide-react";
 import {
   collection,
@@ -27,27 +33,33 @@ import {
   setDoc,
   doc,
   deleteDoc,
+  updateDoc,
   serverTimestamp
 } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { Category, SubCategory, Course, RecentInfo, Coupon, PremiumPlan } from "../types";
+import { RecaptchaVerifier, signInWithPhoneNumber } from "firebase/auth";
+import { auth, db } from "../lib/firebase";
+import { resolveApiUrl } from "../lib/api";
+import { Category, SubCategory, Course, RecentInfo, Coupon, PremiumPlan, Question } from "../types";
 
 interface BulletinsAndSettingsProps {
   categories: Category[];
   subcategories: SubCategory[];
+  questions?: Question[];
   courses: Course[];
   bulletins: RecentInfo[];
   coupons: Coupon[];
   premiumPlans: PremiumPlan[];
   triggerReload: () => void;
-  globalNotice: { title: string; message: string; active: boolean };
+  globalNotice: { title: string; message: string; active: boolean; freeUserQuestionLimit?: number; dailyQuestionLimit?: number };
   maintenanceMode: boolean;
   isSandboxMode?: boolean;
+  onSimulateAlert?: (p: any) => void;
 }
 
 export default function BulletinsAndSettings({
   categories,
   subcategories,
+  questions = [],
   courses,
   bulletins,
   coupons,
@@ -55,10 +67,148 @@ export default function BulletinsAndSettings({
   triggerReload,
   globalNotice,
   maintenanceMode,
-  isSandboxMode
+  isSandboxMode,
+  onSimulateAlert
 }: BulletinsAndSettingsProps) {
-  const [activeSegment, setActiveTab] = useState<"courses" | "groups" | "coupons" | "configs" | "plans">("courses");
+  const [activeSegment, setActiveTab] = useState<"courses" | "groups" | "coupons" | "configs" | "plans" | "api_keys" | "phone_auth">("courses");
   const [confirmConfig, setConfirmConfig] = useState<{ title: string; description: string; onConfirm: () => void } | null>(null);
+
+  // Phone Auth Tester States
+  const [testPhoneNumber, setTestPhoneNumber] = useState("");
+  const [testOtpCode, setTestOtpCode] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [phoneLoading, setPhoneLoading] = useState(false);
+  const [verificationError, setVerificationError] = useState("");
+  const [verificationSuccess, setVerificationSuccess] = useState("");
+  const [confirmResult, setConfirmResult] = useState<any>(null);
+  const [verifiedUserInfo, setVerifiedUserInfo] = useState<any>(null);
+
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPhoneLoading(true);
+    setVerificationError("");
+    setVerificationSuccess("");
+    setVerifiedUserInfo(null);
+
+    if (!testPhoneNumber.trim()) {
+      setVerificationError("অনুগ্রহ করে একটি সচল মোবাইল নম্বর দিন।");
+      setPhoneLoading(false);
+      return;
+    }
+
+    let phoneNumber = testPhoneNumber.trim();
+    if (phoneNumber.startsWith("0")) {
+      phoneNumber = "+88" + phoneNumber;
+    } else if (!phoneNumber.startsWith("+")) {
+      phoneNumber = "+" + phoneNumber;
+    }
+
+    try {
+      if ((window as any).recaptchaVerifier) {
+        try {
+          (window as any).recaptchaVerifier.clear();
+        } catch (e) {}
+      }
+
+      const verifier = new RecaptchaVerifier(auth, "recaptcha-container", {
+        size: "normal",
+        theme: "dark",
+        callback: () => {
+          // Solved
+        },
+        "expired-callback": () => {
+          setVerificationError("ReCAPTCHA ভেরিফিকেশন সেশন সময় উত্তীর্ণ হয়েছে। আবার চেষ্টা করুন।");
+        }
+      });
+      
+      (window as any).recaptchaVerifier = verifier;
+
+      const confirmationResult = await signInWithPhoneNumber(auth, phoneNumber, verifier);
+      setConfirmResult(confirmationResult);
+      setOtpSent(true);
+      setVerificationSuccess(`সফলভাবে ${phoneNumber} নম্বরে ৪-৬ ডিজিটের ওটিপি (OTP) পাঠানো হয়েছে! কোডটি নিচে ইনপুট দিন।`);
+    } catch (err: any) {
+      console.error("Firebase Phone Auth SMS send error:", err);
+      let errMsg = err.message || "";
+      if (err.code === "auth/captcha-check-failed") {
+        errMsg = "ReCAPTCHA ভেরিফিকেশন সম্পূর্ণ হয়নি অথবা ক্যাপচা পরীক্ষা ফেল করেছে।";
+      } else if (err.code === "auth/invalid-phone-number") {
+        errMsg = "ভুল মোবাইল নম্বর ফরম্যাট প্রদান করেছেন! অনুগ্রহ করে দেশের কোড এবং সচল নম্বরটি লিখুন (যেমন: +8801700000000)।";
+      } else if (err.code === "auth/quota-exceeded") {
+        errMsg = "ফায়ারবেস এসএমএস কোটা শেষ হয়ে গেছে! অনুগ্রহ করে ফায়ারবেস কনসোলে আপনার ফ্রি এসএমএস লিমিট বা বিলিং চেক করুন।";
+      } else if (err.code === "auth/too-many-requests") {
+        errMsg = "অনেক বেশি ট্রাই করা হয়েছে! সার্ভার সাময়িকভাবে এই আইপি বা নাম্বার ব্লক করেছে। একটু পর আবার চেষ্টা করুন।";
+      }
+      setVerificationError(`ওটিপি পাঠাতে সমস্যা হয়েছে: ${errMsg}`);
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPhoneLoading(true);
+    setVerificationError("");
+    setVerificationSuccess("");
+
+    if (!testOtpCode.trim()) {
+      setVerificationError("অনুগ্রহ করে প্রাপ্ত ওটিপি (OTP) ওটিপি বক্সে প্রদান করুন।");
+      setPhoneLoading(false);
+      return;
+    }
+
+    if (!confirmResult) {
+      setVerificationError("সেশনটি অচল হয়ে গেছে। অনুগ্রহ করে আবার ওটিপি রিকোয়েস্ট পাঠান।");
+      setPhoneLoading(false);
+      return;
+    }
+
+    try {
+      const result = await confirmResult.confirm(testOtpCode.trim());
+      const user = result.user;
+      
+      setVerifiedUserInfo({
+        uid: user.uid,
+        phoneNumber: user.phoneNumber,
+        createdAt: user.metadata.creationTime,
+        lastLogin: user.metadata.lastSignInTime,
+        provider: user.providerId || "phone"
+      });
+      setVerificationSuccess(`অভিনন্দন! আপনার মোবাইল নম্বর সফলভাবে ফায়ারবেস (Firebase Auth) দিয়ে ভেরিফাইড করা হয়েছে!`);
+    } catch (err: any) {
+      console.error("Firebase Phone Auth code verification error:", err);
+      let errMsg = err.message || "";
+      if (err.code === "auth/invalid-verification-code") {
+        errMsg = "প্রদত্ত ওটিপি (OTP) কোডটি ভুল বা অবৈধ! অনুগ্রহ করে আবার চেক করুন।";
+      } else if (err.code === "auth/code-expired") {
+        errMsg = "কোডটির মেয়াদ শেষ হয়ে গেছে। নতুন একটি এসএমএস রিকোয়েস্ট করুন।";
+      }
+      setVerificationError(`ওটিপি মিলছে না: ${errMsg}`);
+    } finally {
+      setPhoneLoading(false);
+    }
+  };
+
+  const resetPhoneAuthTester = () => {
+    if ((window as any).recaptchaVerifier) {
+      try {
+        (window as any).recaptchaVerifier.clear();
+      } catch (e) {}
+      (window as any).recaptchaVerifier = null;
+    }
+    setTestPhoneNumber("");
+    setTestOtpCode("");
+    setOtpSent(false);
+    setPhoneLoading(false);
+    setVerificationError("");
+    setVerificationSuccess("");
+    setConfirmResult(null);
+    setVerifiedUserInfo(null);
+    const container = document.getElementById("recaptcha-container");
+    if (container) {
+      container.innerHTML = "";
+    }
+  };
 
   // Loading
   const [loading, setLoading] = useState(false);
@@ -80,6 +230,7 @@ export default function BulletinsAndSettings({
   // 3. Subcategories State
   const [subParentId, setSubParentId] = useState("");
   const [subName, setSubName] = useState("");
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
 
   // 4. Bulletins State
   const [recentTitle, setRecentTitle] = useState("");
@@ -96,6 +247,22 @@ export default function BulletinsAndSettings({
   const [noticeTitle, setNoticeTitle] = useState(globalNotice.title);
   const [noticeMsg, setNoticeMsg] = useState(globalNotice.message);
   const [noticeActive, setNoticeActive] = useState(globalNotice.active);
+  const [freeLimit, setFreeLimit] = useState<number>(globalNotice.freeUserQuestionLimit || 20);
+  const [dailyQuestionLimit, setDailyQuestionLimit] = useState<number>(globalNotice.dailyQuestionLimit || 15);
+
+  // Synchronize freeLimit state on prop change
+  useEffect(() => {
+    if (globalNotice?.freeUserQuestionLimit !== undefined) {
+      setFreeLimit(globalNotice.freeUserQuestionLimit);
+    }
+  }, [globalNotice]);
+
+  // Synchronize dailyQuestionLimit state on prop change
+  useEffect(() => {
+    if (globalNotice?.dailyQuestionLimit !== undefined) {
+      setDailyQuestionLimit(globalNotice.dailyQuestionLimit);
+    }
+  }, [globalNotice]);
 
   // 7. Maintenance Mode State
   const [maintChecked, setMaintChecked] = useState(maintenanceMode);
@@ -115,6 +282,8 @@ export default function BulletinsAndSettings({
     message: string;
     type: "success" | "error";
   } | null>(null);
+
+  const [noticeConfirmModalOpen, setNoticeConfirmModalOpen] = useState(false);
 
   const showSettingsToast = (message: string, type: "success" | "error") => {
     setSettingsToast({ message, type });
@@ -147,6 +316,143 @@ export default function BulletinsAndSettings({
   const [soundAlert, setSoundAlert] = useState(true);
   const [webhUrl, setWebhUrl] = useState("");
 
+  // 11. Custom API Base URL for Android Studio / Mobile
+  const [customApiUrl, setCustomApiUrl] = useState("");
+  const [fcmTokens, setFcmTokens] = useState<any[]>([]);
+  const [webNotificationStatus, setWebNotificationStatus] = useState(
+    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "unsupported"
+  );
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setCustomApiUrl(window.localStorage.getItem("custom_api_base_url") || "");
+    }
+  }, []);
+
+  // 12. Backup/Rotatable API Keys Management State
+  const [backupKeys, setBackupKeys] = useState<any[]>([]);
+  const [envKeyInfo, setEnvKeyInfo] = useState<any>(null);
+  const [visibleKeys, setVisibleKeys] = useState<Record<string, boolean>>({});
+  const [copiedKeyId, setCopiedKeyId] = useState<string | null>(null);
+  const [keysLoading, setKeysLoading] = useState(false);
+  const [newApiKey, setNewApiKey] = useState("");
+  const [newApiKeyLabel, setNewApiKeyLabel] = useState("");
+
+  const fetchBackupKeys = async () => {
+    try {
+      setKeysLoading(true);
+      const res = await fetch(resolveApiUrl("/api/gemini-keys"));
+      const data = await res.json();
+      if (data.keys) {
+        setBackupKeys(data.keys);
+      }
+      setEnvKeyInfo({
+        hasEnvKey: data.hasEnvKey,
+        envKey: data.envKey,
+        envKeyMasked: data.envKeyMasked,
+        envKeyCooldown: data.envKeyCooldown
+      });
+    } catch (err) {
+      console.warn("Failed to load Gemini keys:", err);
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleCopyKey = (key: string, id: string) => {
+    if (!key) return;
+    navigator.clipboard.writeText(key)
+      .then(() => {
+        setCopiedKeyId(id);
+        setTimeout(() => setCopiedKeyId(null), 2000);
+      })
+      .catch((err) => {
+        console.warn("Failed to copy API key to clipboard:", err);
+      });
+  };
+
+  const toggleKeyVisibility = (id: string) => {
+    setVisibleKeys(prev => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const handleAddApiKey = async (e: React.FormEvent, isForced = false) => {
+    if (e) e.preventDefault();
+    if (!newApiKey.trim()) {
+      alert("অনুগ্রহ করে একটি সচল Gemini API Key যোগ করুন।");
+      return;
+    }
+    setKeysLoading(true);
+    try {
+      const response = await fetch(resolveApiUrl("/api/gemini-keys"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key: newApiKey.trim(), label: newApiKeyLabel.trim(), force: isForced })
+      });
+      const result = await response.json();
+      if (response.ok) {
+        if (result.warning) {
+          alert(`যোগ করা হয়েছে!\n\n${result.warning}`);
+        } else {
+          alert("সফলভাবে এপিআই কীটি ভ্যালিডেট এবং সেভ করা হয়েছে!");
+        }
+        setNewApiKey("");
+        setNewApiKeyLabel("");
+        fetchBackupKeys();
+      } else {
+        if (result.canForce) {
+          const confirmForce = window.confirm(`${result.error}\n\nআপনি কি তাও যেকোনো উপায়ে এটি জোরপূর্বক ব্যাকআপ লিস্টে সেভ করতে চান?`);
+          if (confirmForce) {
+            handleAddApiKey(undefined as any, true);
+            return;
+          }
+        } else {
+          alert("এরর: " + (result.error || "যুক্ত করা বা ভ্যালিডেট করা যায়নি।"));
+        }
+      }
+    } catch (err: any) {
+      alert("কানেকশন ব্যর্থ: " + err.message);
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleDeleteApiKey = async (id: string) => {
+    if (!confirm("আপনি কি নিশ্চিতভাবে এই ব্যাকআপ এপিআই কী-টি মুছে দিতে চান?")) return;
+    setKeysLoading(true);
+    try {
+      const response = await fetch(resolveApiUrl(`/api/gemini-keys/${id}`), { method: "DELETE" });
+      if (response.ok) {
+        alert("এপিআই কী মুছে দেয়া হয়েছে!");
+        fetchBackupKeys();
+      } else {
+        alert("মুছে ফেলতে ব্যর্থ হয়েছে");
+      }
+    } catch (err: any) {
+      alert("এরর: " + err.message);
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  const handleResetApiKeysStatus = async () => {
+    setKeysLoading(true);
+    try {
+      const response = await fetch(resolveApiUrl("/api/gemini-keys/reset"), { method: "POST" });
+      if (response.ok) {
+        alert("সকল ব্যাকআপ কী এবং প্রাইমারি এনভায়রনমেন্ট কী-এর লিমিট ও কোoldown রিসেট করা হয়েছে!");
+        fetchBackupKeys();
+      }
+    } catch (err: any) {
+      alert("এরর: " + err.message);
+    } finally {
+      setKeysLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBackupKeys();
+  }, []);
+
   // Fetch Telegram & Notification Configuration from Firestore on load
   useEffect(() => {
     const fetchNotifConfig = async () => {
@@ -166,6 +472,30 @@ export default function BulletinsAndSettings({
     };
     fetchNotifConfig();
   }, []);
+
+  // Fetch registered admin FCM tokens for native Android notifications list
+  const fetchFcmTokens = async () => {
+    try {
+      const snap = await getDocs(collection(db, "admin_fcm_tokens"));
+      const list: any[] = [];
+      snap.forEach((docSnap) => {
+        list.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      // Sort in descending order of registration
+      list.sort((a, b) => {
+        const timeA = a.registeredAt?.toDate?.() || new Date(a.registeredAt || 0);
+        const timeB = b.registeredAt?.toDate?.() || new Date(b.registeredAt || 0);
+        return timeB - timeA;
+      });
+      setFcmTokens(list);
+    } catch (e) {
+      console.warn("Failed to fetch registered fcm tokens:", e);
+    }
+  };
+
+  useEffect(() => {
+    fetchFcmTokens();
+  }, [triggerReload]);
 
   const handleSaveNotificationConfig = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -214,6 +544,37 @@ export default function BulletinsAndSettings({
       alert("টেস্ট নোটিফিকেশন পাঠাতে ব্যর্থ: " + err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const requestAndTestWebNotification = async () => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      alert("দুঃখিত, এই ব্রাউজারটিতে স্ট্যান্ডার্ড নোটিফিকেশন সিস্টেম সমর্থিত নয়।");
+      return;
+    }
+
+    try {
+      const isIframe = window.self !== window.top;
+      if (isIframe) {
+        alert("⚠️ আপনি বর্তমানে এডিটর ফ্রেমের ভেতরে আছেন!\n\nফ্রেমের নিরাপত্তা কড়াকড়ির কারণে ব্রাউজার পপআপ কাজ করবে না। দয়া করে এডমিন প্যানেলের উপর ডানদিকের 'Open in a new tab' বাটনে ক্লিক করে নতুন ট্যাবে প্রজেক্টটি খুলুন এবং পুনরায় ট্রাই করুন।");
+        return;
+      }
+
+      const permission = await Notification.requestPermission();
+      setWebNotificationStatus(permission);
+
+      if (permission === "granted") {
+        new Notification("🔔 MCQ Hero লাইভ টেস্ট!", {
+          body: "অভিনন্দন! আপনার ব্রাউজার নোটিফিকেশন পপআপ সফলভাবে কাজ করছে। নতুন পেমেন্ট সাবমিট হলে আপনি পিসি বা মোবাইলের স্ক্রিনে পপআপ সতর্কতা পাবেন!",
+          icon: "/icon.png"
+        });
+      } else if (permission === "denied") {
+        alert("নোটিফিকেশন পারমিশন ব্লক করা আছে! দয়া করে ব্রাউজার এড্রেস বারের বামের 'Lock/Tune' আইকনটিতে ক্লিক করে নোটিফিকেশন এলাউ (Allow) করে দিন।");
+      } else {
+        alert("পারমিশন দেওয়া হয়নি। ব্রাউজার থেকে নোটিফিকেশন পারমিশনটি এলাউ করতে সম্মতি দিন।");
+      }
+    } catch (err: any) {
+      alert("পারমিশন রিকোয়েস্ট এরর: " + err.message);
     }
   };
 
@@ -438,15 +799,30 @@ export default function BulletinsAndSettings({
 
       if (isSandboxMode) {
         const local = localStorage.getItem("local_subcategories") || "[]";
-        const parsed = JSON.parse(local) as any[];
-        parsed.push({ id: "subcat-" + Date.now(), ...payload });
-        localStorage.setItem("local_subcategories", JSON.stringify(parsed));
-        alert("সাব-ক্যাটাগরি যুক্ত করা হয়েছে! (স্যান্ডবক্স মোড)");
+        let parsed = JSON.parse(local) as any[];
+        if (editingSubId) {
+          parsed = parsed.map((item) =>
+            item.id === editingSubId ? { ...item, ...payload } : item
+          );
+          localStorage.setItem("local_subcategories", JSON.stringify(parsed));
+          alert("সাব-ক্যাটাগরি সফলভাবে আপডেট করা হয়েছে! (স্যান্ডবক্স মোড)");
+        } else {
+          parsed.push({ id: "subcat-" + Date.now(), ...payload });
+          localStorage.setItem("local_subcategories", JSON.stringify(parsed));
+          alert("সাব-ক্যাটাগরি যুক্ত করা হয়েছে! (স্যান্ডবক্স মোড)");
+        }
       } else {
-        await addDoc(collection(db, "subcategories"), payload);
-        alert("সাব-ক্যাটাগরি যুক্ত করা হয়েছে!");
+        if (editingSubId) {
+          await updateDoc(doc(db, "subcategories", editingSubId), payload);
+          alert("সাব-ক্যাটাগরি সফলভাবে আপডেট করা হয়েছে!");
+        } else {
+          await addDoc(collection(db, "subcategories"), payload);
+          alert("সাব-ক্যাটাগরি যুক্ত করা হয়েছে!");
+        }
       }
       setSubName("");
+      setSubParentId("");
+      setEditingSubId(null);
       triggerReload();
     } catch (err: any) {
       alert("ব্যর্থ: " + err.message);
@@ -596,36 +972,106 @@ export default function BulletinsAndSettings({
     }
   };
 
-  //notice and maint updates
-  const handleUpdateNoticeAndConfig = async () => {
+  //notice and config updates
+  const handleUpdateNoticeAndConfig = () => {
+    setNoticeConfirmModalOpen(true);
+  };
+
+  const executeUpdateNoticeAndConfigDirect = async () => {
+    setNoticeConfirmModalOpen(false);
     setLoading(true);
     try {
+      const qLimit = Number(freeLimit) || 20;
+      const countLimit = Number(dailyQuestionLimit) || 15;
       if (isSandboxMode) {
         localStorage.setItem("local_global_notice", JSON.stringify({
           title: noticeTitle.trim(),
           message: noticeMsg.trim(),
-          active: noticeActive
+          active: noticeActive,
+          freeUserQuestionLimit: qLimit,
+          dailyQuestionLimit: countLimit
         }));
         localStorage.setItem("local_maintenance_mode", maintChecked ? "true" : "false");
-        alert("নোটিশ ও মেইনটেনেন্স কনফিগারেশন সফলভাবে স্থানীয়ভাবে (Sandbox) আপডেট করা হয়েছে!");
+        alert("নোটিশ ও সেটিংস সফলভাবে স্থানীয়ভাবে (Sandbox) আপডেট করা হয়েছে!");
         triggerReload();
         return;
       }
 
-      // 1. Notice doc (updates notice text parameters and syncs maintenance)
+      // 1. Notice doc (updates notice text parameters and syncs maintenance, free question limit & daily Question limit)
       await setDoc(doc(db, "settings", "global_notice"), {
         title: noticeTitle.trim(),
         message: noticeMsg.trim(),
         active: noticeActive,
         maintenance: maintChecked,
         maintenanceMode: maintChecked,
+        freeUserQuestionLimit: qLimit,
+        freeQuestionLimit: qLimit,
+        free_user_limit: qLimit,
+        free_limit: qLimit,
+        limit: qLimit,
+        questions_limit: qLimit,
+        daily_limit: qLimit,
+        practice_limit: qLimit,
+        dailyQuestionLimit: countLimit,
         updatedAt: serverTimestamp()
       }, { merge: true });
 
       // 2. Maint Mode doc (updates with merge to avoid zeroing other settings)
       await setDoc(doc(db, "app_config", "app_config"), {
-        maintenance: maintChecked
+        maintenance: maintChecked,
+        freeUserQuestionLimit: qLimit,
+        freeQuestionLimit: qLimit,
+        free_user_limit: qLimit,
+        free_limit: qLimit,
+        limit: qLimit,
+        free_user_question_limit: qLimit,
+        questionsLimit: qLimit,
+        questionLimit: qLimit,
+        questions_limit: qLimit,
+        dailyLimit: qLimit,
+        daily_limit: qLimit,
+        daily_questions_limit: qLimit,
+        daily_question_limit: qLimit,
+        free_daily_limit: qLimit,
+        practice_limit: qLimit,
+        practice_questions_limit: qLimit,
+        free_practice_limit: qLimit,
+        free_practice_questions_limit: qLimit,
+        view_limit: qLimit,
+        viewLimit: qLimit,
+        dailyQuestionLimit: countLimit
       }, { merge: true });
+
+      // 2b. Write to app_config/settings
+      try {
+        await setDoc(doc(db, "app_config", "settings"), {
+          maintenance: maintChecked,
+          freeUserQuestionLimit: qLimit,
+          freeQuestionLimit: qLimit,
+          free_user_limit: qLimit,
+          free_limit: qLimit,
+          limit: qLimit,
+          free_user_question_limit: qLimit,
+          questionsLimit: qLimit,
+          questionLimit: qLimit,
+          questions_limit: qLimit,
+          dailyLimit: qLimit,
+          daily_limit: qLimit,
+          daily_questions_limit: qLimit,
+          daily_question_limit: qLimit,
+          free_daily_limit: qLimit,
+          practice_limit: qLimit,
+          practice_questions_limit: qLimit,
+          free_practice_limit: qLimit,
+          free_practice_questions_limit: qLimit,
+          view_limit: qLimit,
+          viewLimit: qLimit,
+          dailyQuestionLimit: countLimit,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Redundant write to app_config/settings failed: ", err);
+      }
 
       // 3. Fallback maintenance_mode doc
       try {
@@ -639,25 +1085,215 @@ export default function BulletinsAndSettings({
         console.warn("Redundant write to settings/maintenance_mode failed: ", err);
       }
 
+      // 4. Fallback question_bank_config doc
+      try {
+        await setDoc(doc(db, "settings", "question_bank_config"), {
+          freeUserQuestionLimit: qLimit,
+          freeQuestionLimit: qLimit,
+          free_user_limit: qLimit,
+          limit: qLimit,
+          free_user_question_limit: qLimit,
+          questionsLimit: qLimit,
+          questionLimit: qLimit,
+          questions_limit: qLimit,
+          dailyLimit: qLimit,
+          daily_limit: qLimit,
+          daily_questions_limit: qLimit,
+          daily_question_limit: qLimit,
+          free_daily_limit: qLimit,
+          practice_limit: qLimit,
+          practice_questions_limit: qLimit,
+          free_practice_limit: qLimit,
+          free_practice_questions_limit: qLimit,
+          view_limit: qLimit,
+          viewLimit: qLimit,
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.warn("Redundant write to settings/question_bank_config failed: ", err);
+      }
+
+      // 5. Broad Redundant Settings Docs Writing
+      const docsToUpdate = [
+        ["settings", "app_config"],
+        ["settings", "app_settings"],
+        ["settings", "config"],
+        ["settings", "free_limit"],
+        ["settings", "free_user_limit"],
+        ["settings", "general_settings"],
+        ["settings", "parameters"],
+        ["settings", "question_bank"],
+        ["settings", "question_config"],
+        ["settings", "question_limit"],
+        ["settings", "settings"],
+        
+        // Root config collections
+        ["app_config", "config"],
+        ["app_config", "app_settings"],
+        ["app_config", "settings"],
+        ["app_settings", "app_settings"],
+        ["app_settings", "config"],
+        ["config", "config"],
+        ["config", "app_config"],
+        ["config", "settings"],
+        ["free_limit", "free_limit"],
+        ["free_user_limit", "free_user_limit"],
+        ["question_limit", "question_limit"],
+        ["questions_config", "config"],
+        ["questions_config", "questions_config"],
+        ["limits", "limits"],
+        ["limits", "config"],
+        ["limits", "question_limit"],
+        ["parameters", "parameters"],
+        ["parameters", "config"],
+        ["system_config", "system_config"],
+        ["system_settings", "system_settings"],
+        ["system_settings", "config"]
+      ];
+
+      const comprehensiveLimitFields = {
+        freeUserQuestionLimit: qLimit,
+        free_user_limit: qLimit,
+        free_user_question_limit: qLimit,
+        free_user_questions_limit: qLimit,
+        limit: qLimit,
+        freeQuestionLimit: qLimit,
+        free_limit: qLimit,
+        free_questions_limit: qLimit,
+        questions_limit: qLimit,
+        questionsLimit: qLimit,
+        questionLimit: qLimit,
+        dailyLimit: qLimit,
+        daily_limit: qLimit,
+        daily_questions_limit: qLimit,
+        daily_question_limit: qLimit,
+        free_daily_limit: qLimit,
+        practice_limit: qLimit,
+        practice_questions_limit: qLimit,
+        free_practice_limit: qLimit,
+        free_practice_questions_limit: qLimit,
+        view_limit: qLimit,
+        viewLimit: qLimit,
+        dailyQuestionLimit: countLimit,
+        settings: {
+          freeUserQuestionLimit: qLimit,
+          free_user_limit: qLimit,
+          free_user_question_limit: qLimit,
+          free_user_questions_limit: qLimit,
+          limit: qLimit,
+          freeQuestionLimit: qLimit,
+          free_limit: qLimit,
+          free_questions_limit: qLimit,
+          questions_limit: qLimit,
+          questionsLimit: qLimit,
+          questionLimit: qLimit,
+          dailyLimit: qLimit,
+          daily_limit: qLimit,
+          daily_questions_limit: qLimit,
+          daily_question_limit: qLimit,
+          free_daily_limit: qLimit,
+          practice_limit: qLimit,
+          practice_questions_limit: qLimit,
+          free_practice_limit: qLimit,
+          free_practice_questions_limit: qLimit,
+          view_limit: qLimit,
+          viewLimit: qLimit,
+          dailyQuestionLimit: countLimit,
+        }
+      };
+
+      for (const [col, docId] of docsToUpdate) {
+        try {
+          await setDoc(doc(db, col, docId), {
+            ...comprehensiveLimitFields,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        } catch (e) {
+          console.warn(`Write to fallback doc ${col}/${docId} failed:`, e);
+        }
+      }
+
+      // 5b. Write explicitly to settings/app_config/settings subcollection document paths
+      const subcollectionSettingsDocs = ["settings", "config", "app_settings"];
+      for (const sDoc of subcollectionSettingsDocs) {
+        try {
+          await setDoc(doc(db, "settings", "app_config", "settings", sDoc), {
+            ...comprehensiveLimitFields,
+            updatedAt: serverTimestamp()
+          }, { merge: true });
+        } catch (e) {
+          console.warn(`Write to nested doc settings/app_config/settings/${sDoc} failed:`, e);
+        }
+      }
+
+      // 6. Update all individual category, course and subcategory documents with the limit attributes
+      if (subcategories && subcategories.length > 0) {
+        for (const sub of subcategories) {
+          if (sub.id) {
+            try {
+              await updateDoc(doc(db, "subcategories", sub.id), {
+                ...comprehensiveLimitFields
+              });
+            } catch (e) {
+              console.warn(`Failed to update subcategory ${sub.id}:`, e);
+            }
+          }
+        }
+      }
+
+      if (categories && categories.length > 0) {
+        for (const cat of categories) {
+          if (cat.id) {
+            try {
+              await updateDoc(doc(db, "categories", cat.id), {
+                ...comprehensiveLimitFields
+              });
+            } catch (e) {
+              console.warn(`Failed to update category ${cat.id}:`, e);
+            }
+          }
+        }
+      }
+
+      if (courses && courses.length > 0) {
+        for (const course of courses) {
+          if (course.id) {
+            try {
+              await updateDoc(doc(db, "courses", course.id), {
+                ...comprehensiveLimitFields
+              });
+            } catch (e) {
+              console.warn(`Failed to update course ${course.id}:`, e);
+            }
+          }
+        }
+      }
+
       // Maintain local cache as a high-security backup 
       localStorage.setItem("local_global_notice", JSON.stringify({
         title: noticeTitle.trim(),
         message: noticeMsg.trim(),
-        active: noticeActive
+        active: noticeActive,
+        freeUserQuestionLimit: qLimit,
+        dailyQuestionLimit: countLimit
       }));
       localStorage.setItem("local_maintenance_mode", maintChecked ? "true" : "false");
 
-      alert("নোটিশ ও মেইনটেনেন্স কনফিগারেশন সফলভাবে ক্লাউড ডাটাবেজে আপডেট করা হয়েছে!");
+      alert("নোটিশ ও ফ্রি ইউজার লিমিট কনফিগারেশন সফলভাবে ক্লাউড ডাটাবেজে আপডেট করা হয়েছে!");
       triggerReload();
     } catch (err: any) {
       console.warn("Firebase config write failed, using local storage fallback:", err);
+      const qLimit = Number(freeLimit) || 20;
+      const countLimit = Number(dailyQuestionLimit) || 15;
       localStorage.setItem("local_global_notice", JSON.stringify({
         title: noticeTitle.trim(),
         message: noticeMsg.trim(),
-        active: noticeActive
+        active: noticeActive,
+        freeUserQuestionLimit: qLimit,
+        dailyQuestionLimit: countLimit
       }));
       localStorage.setItem("local_maintenance_mode", maintChecked ? "true" : "false");
-      alert("নোটিশ ও মেইনটেনেন্স কনফিগারেশন আপডেট করা হয়েছে (Firebase সংযোগ সমস্যা, স্থানীয় মেমরিতে সংরক্ষিত)!");
+      alert("কনফিগারেশন আপডেট করা হয়েছে (Firebase সংযোগ সমস্যা, স্থানীয় মেমরিতে সংরক্ষিত)!");
       triggerReload();
     } finally {
       setLoading(false);
@@ -735,6 +1371,24 @@ export default function BulletinsAndSettings({
         >
           <Settings className="w-4 h-4" />
           গ্লোবাল মেইনটেনেন্স ও পুশ
+        </button>
+        <button
+          onClick={() => setActiveTab("api_keys")}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-1.5 py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+            activeSegment === "api_keys" ? "bg-teal-500 text-white shadow" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Zap className="w-4 h-4 text-amber-400 animate-pulse" />
+          এপিআই কী রোটেটর
+        </button>
+        <button
+          onClick={() => setActiveTab("phone_auth")}
+          className={`flex-1 min-w-[120px] flex items-center justify-center gap-1.5 py-2.5 px-3 text-xs font-bold rounded-lg transition-all ${
+            activeSegment === "phone_auth" ? "bg-teal-500 text-white shadow" : "text-slate-400 hover:text-white"
+          }`}
+        >
+          <Smartphone className="w-4 h-4 text-emerald-400" />
+          মোবাইল ওটিপি টেস্ট
         </button>
       </div>
 
@@ -1355,7 +2009,7 @@ export default function BulletinsAndSettings({
             >
               <h4 className="text-md font-bold text-teal-400 flex items-center gap-1.5">
                 <FolderPlus className="w-5 h-5" />
-                নতুন পড়ার বিষয় বা সাব-ক্যাটাগরি যুক্ত করুণ
+                {editingSubId ? "সাব-ক্যাটাগরি সম্পাদনা করুন" : "নতুন পড়ার বিষয় বা সাব-ক্যাটাগরি যুক্ত করুণ"}
               </h4>
 
               <div>
@@ -1387,39 +2041,75 @@ export default function BulletinsAndSettings({
                 />
               </div>
 
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer"
-              >
-                সাব-ক্যাটাগরি কন্টাক্ট করুণ
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-teal-500 hover:bg-teal-600 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer"
+                >
+                  {editingSubId ? "আপডেট সংরক্ষণ করুন" : "সাব-ক্যাটাগরি সাবমিট করুণ"}
+                </button>
+
+                {editingSubId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingSubId(null);
+                      setSubName("");
+                      setSubParentId("");
+                    }}
+                    className="w-full bg-slate-700 hover:bg-slate-600 text-slate-200 font-bold text-[11px] py-2 rounded-lg h-[36px] cursor-pointer transition-colors"
+                  >
+                    সম্পাদনা বাতিল করুন
+                  </button>
+                )}
+              </div>
             </form>
 
             <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-3">
               <span className="text-slate-400 text-xs font-bold block">সাব-ক্যাটাগরি তালিকা ({subcategories.length})</span>
-              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
                 {subcategories.map((sub) => {
                   const parentGroup = categories.find((c) => c.id === sub.parentId);
+                  const qCount = questions.filter((q) => q.subId === sub.id).length;
                   return (
                     <div
                       key={sub.id}
-                      className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex justify-between items-center"
+                      className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 flex justify-between items-center hover:border-slate-700 transition"
                     >
                       <div>
                         <span className="font-semibold text-white">{sub.name}</span>
-                        {parentGroup && (
-                          <span className="text-slate-500 text-[9px] block">
-                            প্যারেন্ট: {parentGroup.name}
+                        <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                          {parentGroup && (
+                            <span className="text-slate-500 text-[9px]">
+                              প্যারেন্ট: {parentGroup.name}
+                            </span>
+                          )}
+                          <span className="bg-teal-500/10 text-teal-400 text-[9px] px-1.5 py-0.5 rounded font-bold font-mono">
+                            প্রশ্ন: {qCount} টি
                           </span>
-                        )}
+                        </div>
                       </div>
-                      <button
-                        onClick={() => sub.id && handleDelete("subcategories", sub.id)}
-                        className="text-red-500 hover:text-white hover:bg-red-500/10 p-1.5 rounded transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => {
+                            setEditingSubId(sub.id || null);
+                            setSubName(sub.name);
+                            setSubParentId(sub.parentId);
+                          }}
+                          className="text-teal-400 hover:text-white hover:bg-teal-500/10 p-1.5 rounded transition-colors"
+                          title="সম্পাদনা করুন"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => sub.id && handleDelete("subcategories", sub.id)}
+                          className="text-red-500 hover:text-white hover:bg-red-500/10 p-1.5 rounded transition-colors"
+                          title="মুছে ফেলুন"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
@@ -1606,15 +2296,87 @@ export default function BulletinsAndSettings({
                     শিক্ষার্থীদের হোমপেজে নোটিশ প্রদর্শন সচল করুন
                   </label>
                 </div>
+
+                {/* Free Question Limit Section */}
+                <div className="border-t border-slate-700/50 pt-3.5 mt-2 space-y-2.5">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-slate-200 text-xs font-semibold flex items-center gap-1.5 select-none">
+                      <HelpCircle className="w-4 h-4 text-emerald-400" />
+                      ফ্রি ইউজার প্রশ্ন লিমিট (Free Limit Per Topic)
+                    </label>
+                    <span className="text-[11px] bg-emerald-500/15 text-emerald-400 font-bold px-2.5 py-0.5 rounded-lg border border-emerald-500/20 font-mono">
+                      {freeLimit} টি প্রশ্ন
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed">
+                    প্রশ্ন ব্যাংক থেকে প্রতিটি টপিক বা ক্যাটাগরিতে একজন সাধারণ (Free) শিক্ষার্থী সর্বোচ্চ কতটি প্রশ্ন বিনামূল্যে দেখতে পারবেন তা সংজ্ঞায়িত করুন।
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="1"
+                      max="200"
+                      value={freeLimit}
+                      onChange={(e) => setFreeLimit(Number(e.target.value))}
+                      className="flex-1 accent-emerald-500 h-1.5 bg-slate-900 rounded-lg cursor-pointer animate-pulse"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      max="9999"
+                      value={freeLimit}
+                      onChange={(e) => setFreeLimit(Math.max(1, Number(e.target.value)))}
+                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-center text-white outline-none focus:border-emerald-500 font-mono font-bold"
+                    />
+                  </div>
+                </div>
+
+                {/* Question Daily Limit Control Section */}
+                <div className="border-t border-slate-700/50 pt-3.5 mt-2 space-y-2.5">
+                  <div className="flex justify-between items-center mb-1">
+                    <label className="text-slate-200 text-xs font-semibold flex items-center gap-1.5 select-none">
+                      <Sparkles className="w-4 h-4 text-purple-400" />
+                      দৈনিক প্রশ্ন লিমিট কন্ট্রোল (Daily Question Limit)
+                    </label>
+                    <span className="text-[11px] bg-purple-500/15 text-purple-400 font-bold px-2.5 py-0.5 rounded-lg border border-purple-500/20 font-mono">
+                      {dailyQuestionLimit} টি প্রশ্ন
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-slate-400 leading-relaxed">
+                    শিক্ষার্থী বা অ্যাডমিন সহকারীগণ চ্যাটবক্স বা এআই ড্যাশবোর্ডে প্রতিদিন সর্বোচ্চ কতটি প্রশ্নের উত্তর বা জেনারেশন করতে পারবেন তা লিমিট করুন।
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="range"
+                      min="1"
+                      max="150"
+                      value={dailyQuestionLimit}
+                      onChange={(e) => setDailyQuestionLimit(Number(e.target.value))}
+                      className="flex-1 accent-purple-500 h-1.5 bg-slate-900 rounded-lg cursor-pointer"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      max="9999"
+                      value={dailyQuestionLimit}
+                      onChange={(e) => setDailyQuestionLimit(Math.max(1, Number(e.target.value)))}
+                      className="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-center text-white outline-none focus:border-purple-500 font-mono font-bold"
+                    />
+                  </div>
+                  <div className="bg-purple-950/25 border border-purple-900/30 p-2.5 rounded-lg text-[10px] text-purple-300 leading-relaxed flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-purple-400 animate-ping" />
+                    <span>বর্তমান ডাইনামিক লাইভ স্ট্যাটাস: প্রতিদিন সর্বোচ্চ <b>{dailyQuestionLimit} টি</b> প্রশ্ন জেনারেট/জিজ্ঞাসা করার অনুমতি রয়েছে।</span>
+                  </div>
+                </div>
               </div>
 
               <button
                 type="button"
                 onClick={handleUpdateNoticeAndConfig}
                 disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer"
+                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer transition-colors"
               >
-                নোটিশ ফাইল কনফিগারেশন আপডেট করুন
+                নোটিশ ও ফ্রি লিমিট কনফিগারেশন সেভ করুন
               </button>
             </div>
 
@@ -1721,6 +2483,182 @@ export default function BulletinsAndSettings({
                 </button>
               </div>
             </form>
+          </div>
+
+          {/* Browser Notification settings & Test tool */}
+          <div className="bg-slate-800/60 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+            <h4 className="text-md font-bold text-sky-400 flex items-center gap-1.5 font-display">
+              <Bell className="w-5 h-5 text-sky-400 animate-pulse" />
+              ব্রাউজার নোটিফিকেশন সেটিংস ও টেস্ট টুল (Browser Notifications)
+            </h4>
+            <p className="text-slate-400 text-[10px] leading-relaxed font-sans">
+              আপনি যদি অ্যান্ড্রয়েড ফোনে এপে কনভার্ট না করে সরাসরি ক্রোম বা অন্য মোবাইল ব্রাউজারে নোটিফিকেশন পেতে চান, তবে এই ব্রাউজারে নোটিফিকেশন এলাউ থাকলে নতুন পেমেন্ট সাবমিট আসবামাত্রই স্ক্রিনে পুশ এলার্ট ও শব্দ রিংটোন বাজবে।
+            </p>
+
+            <div className="p-3.5 bg-slate-900/50 border border-slate-700/40 rounded-xl space-y-2 text-[10px]">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-semibold">আপনার ব্রাউজার পারমিশন স্ট্যাটাস:</span>
+                <span className={`px-2 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider ${
+                  webNotificationStatus === "granted"
+                    ? "bg-green-500/10 text-green-400 border border-green-500/20"
+                    : webNotificationStatus === "denied"
+                    ? "bg-red-500/10 text-red-400 border border-red-500/20"
+                    : "bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                }`}>
+                  {webNotificationStatus === "granted" ? "অনুমোদিত (Granted)" : webNotificationStatus === "denied" ? "ব্লকড (Blocked/Denied)" : "ডিফল্ট (Default/Pending)"}
+                </span>
+              </div>
+              
+              <div className="text-slate-300 leading-relaxed text-[10px] space-y-2">
+                <div>
+                  <span className="font-bold text-red-400 block mb-1">🔴 আপনার ব্রাউজারে নোটিফিকেশন ব্লক করা আছে! এটি যেভাবে সমাধান করবেন:</span>
+                  <p className="pl-2 border-l-2 border-red-500/30 text-slate-400">
+                    ১. ব্রাউজারের উপরে এড্রেস বারের বাম পাশে <strong>"Lock (তালা)"</strong> বা <strong>"Tune (সেটিংস আইকন)"</strong> এ ক্লিক করুন।<br />
+                    ২. <strong>"Permissions (অনুমতি)"</strong> বা <strong>"Site Settings"</strong> এ যান।<br />
+                    ৩. <strong>"Notifications (নোটিফিকেশন)"</strong> অপশনটি খুজে বের করুন এবং ওটি <strong>"Reset permissions"</strong> অথবা <strong>"Allow"</strong> করে দিন।<br />
+                    ৪. এরপর পেজটি একবার রিফ্রেশ (Reload) দিয়ে নতুন ট্যাবে আবার চেষ্টা করুন।
+                  </p>
+                </div>
+                
+                <div className="pt-1.5 border-t border-slate-800">
+                  <span className="font-bold text-emerald-400 block mb-0.5">💡 বিকল্প ইন-অ্যাপ এলার্ট (সীমাহীন):</span>
+                  <p className="text-slate-400">মোবাইল ব্রাউজার বা ডিভাইসে নোটিফিকেশন ব্লক থাকলেও সমস্যা নেই! আপনি যখন এই এডমিন ড্যাশবোর্ড ওপেন রাখবেন, নতুন পেমেন্ট আসলেই স্ক্রিনের উপর একটি আকর্ষণীয় পপআপ ব্যানার ভেসে উঠবে এবং রিংটোন বাজবে। নিচের বাটনে ক্লিক করে এখনই টেস্ট করুন!</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={requestAndTestWebNotification}
+                className="w-full bg-gradient-to-r from-sky-500 to-indigo-500 hover:from-sky-600 hover:to-indigo-600 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer transition-colors flex items-center justify-center gap-1.5 shadow"
+              >
+                <Smartphone className="w-4 h-4 text-white" />
+                ব্রাউজার পারমিশন দিন ও টেস্ট করুন 🧪
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onSimulateAlert) {
+                    onSimulateAlert({
+                      email: "demo_student@gmail.com",
+                      planName: "BCS BCS Hero Premium Gold Course",
+                      method: "bKash (Personal)",
+                      amount: 500,
+                      status: "pending",
+                      createdAt: new Date().toISOString()
+                    });
+                  } else {
+                    alert("ইন-অ্যাপ পুশ ড্যাশবোর্ডে লোড হচ্ছে। দয়া করে পেজটি রিফ্রেশ দিন।");
+                  }
+                }}
+                className="w-full bg-slate-700/80 hover:bg-slate-700 border border-slate-600/50 hover:border-amber-500/30 text-white font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer transition-colors flex items-center justify-center gap-1.5 shadow"
+              >
+                <Bell className="w-4 h-4 text-amber-400 animate-bounce" />
+                ইন-অ্যাপ এলার্ট ও সাউন্ড টেস্ট করুন 🔔
+              </button>
+            </div>
+          </div>
+
+          {/* Custom API Base URL for Mobile WebView and Android Studio */}
+          <div className="bg-slate-800/60 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+            <h4 className="text-md font-bold text-teal-400 flex items-center gap-1.5">
+              <Globe className="w-5 h-5 text-teal-400" />
+              অ্যান্ড্রয়েড স্টুডিও এবং মোবাইল এপিআই সেটিংস
+            </h4>
+            <p className="text-slate-400 text-[10px] leading-relaxed">
+              মোবাইলে ইন্সটল করার পর বা অ্যান্ড্রয়েড স্টুডিও-তে WebView দিয়ে অ্যাপ চালানোর সময় AI MCQ জেনারেট কাজ না করলে এখানে আপনার সার্ভারের সচল লিঙ্কটি সেভ করুন।
+            </p>
+
+            <div className="p-3 bg-teal-500/10 border border-teal-500/20 rounded-xl space-y-1 text-[10px] text-slate-300 leading-normal">
+              <span className="font-bold text-teal-300 block">💡 এপিআই কানেকশন টিপস:</span>
+              • ডিফল্ট ট্রায়াল লিংক: <span className="font-mono text-purple-300">https://ais-pre-zw3x24xm35bs526mu55sme-1013337780190.asia-southeast1.run.app</span> (এটি ব্যবহারের জন্য ব্রাউজারে গুগল সাইন-ইন থাকতে হবে, যা মোবাইল অ্যাপের ভেতর কাজ নাও করতে পারে)।<br />
+              • <strong>স্থানীয় পিসিতে টেস্ট করার জন্য:</strong> আপনার কম্পিউটার ও মোবাইল একই ওয়াইফাই-এ কানেক্ট করুন। আপনার কম্পিউটারের লোকাল আইপি অ্যাড্রেস যেমন: <span className="font-mono text-emerald-300">http://192.168.0.101:3000</span> এখানে লিখে সেভ করুন।<br />
+              • <strong>রিয়েল প্রোডাকশনের জন্য:</strong> এই প্রজেক্টের নোড সার্ভারটি Render, Railway, বা অন্য কোথাও ডিপ্লয় করে সেই পাবলিক URL-টি এখানে সেভ করুন।
+            </div>
+
+            <div>
+              <label className="text-slate-300 text-xs font-semibold block mb-1">এপিআই সার্ভার বেস ইউআরএল (API Base URL)</label>
+              <div className="flex gap-2 font-sans">
+                <input
+                  type="text"
+                  value={customApiUrl}
+                  onChange={(e) => setCustomApiUrl(e.target.value)}
+                  placeholder="যেমন: http://192.168.0.105:3000 বা https://my-backend.onrender.com"
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-500 h-[38px] font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (typeof window !== "undefined") {
+                      if (customApiUrl.trim()) {
+                        window.localStorage.setItem("custom_api_base_url", customApiUrl.trim());
+                        showSettingsToast("এপিআই ইউআরএল সফলভাবে সেভ করা হয়েছে!", "success");
+                      } else {
+                        window.localStorage.removeItem("custom_api_base_url");
+                        showSettingsToast("এপিআই ইউআরএল রিসেট করা হয়েছে!", "success");
+                      }
+                    }
+                  }}
+                  className="bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs px-4 rounded-lg h-[38px] cursor-pointer transition-colors"
+                >
+                  সেভ করুন
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Registered Admin FCM Devices list */}
+          <div className="bg-slate-800/60 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+            <h4 className="text-md font-bold text-indigo-400 flex items-center gap-1.5">
+              <Smartphone className="w-5 h-5 text-indigo-400 animate-pulse" />
+              অ্যান্ড্রয়েড FCM পুশ ডিভাইস তালিকা ({fcmTokens.length})
+            </h4>
+            <p className="text-slate-400 text-[10px] leading-relaxed">
+              আপনার MCQ Hero এডমিন এন্ড্রয়েড অ্যাপটি যখনই কোনো সচল ডিভাইসে চালু করা হয়, তখনই এর ইউনিক Google FCM টোকেনটি এখানে স্বয়ংক্রিয়ভাবে নিবন্ধিত হয়। নতুন পেমেন্ট সাবমিট হলে এই নিবন্ধিত ডিভাইসসমূহে রিয়েল-টাইম পুশ নোটিফিকেশন পাঠানো হবে।
+            </p>
+
+            <div className="max-h-[180px] overflow-y-auto rounded-xl border border-slate-700/40 bg-slate-900/50">
+              {fcmTokens.length === 0 ? (
+                <div className="p-4 text-center text-slate-500 text-xs">
+                  কোনো নিবন্ধিত এন্ড্রয়েড ডিভাইস পাওয়া যায়নি। এন্ড্রয়েড এপে লগইন করলে ডিভাইস টোকেন এখানে অটোমেটিক অ্যাড হবে।
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-850">
+                  {fcmTokens.map((t, idx) => (
+                    <div key={t.id || idx} className="p-3 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 hover:bg-slate-800/40 transition-colors">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-200">{t.email || "অজ্ঞাত এডমিন"}</span>
+                          <span className="px-1.5 py-0.5 bg-indigo-500/10 text-indigo-400 rounded-md text-[9px] uppercase font-mono tracking-wider">{t.platform || "android"}</span>
+                        </div>
+                        <div className="font-mono text-[9px] text-slate-500 max-w-[250px] truncate select-all" title={t.token}>
+                          FCM: {t.token}
+                        </div>
+                      </div>
+                      <div className="text-right sm:text-right text-[10px] text-slate-400 whitespace-nowrap">
+                        {t.registeredAt ? (
+                          <span>নিবন্ধিত: {new Date(t.registeredAt.toDate?.() || t.registeredAt).toLocaleDateString("bn-BD")}</span>
+                        ) : (
+                          <span className="text-slate-600">N/A</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={fetchFcmTokens}
+                className="text-xs text-indigo-400 hover:text-indigo-300 font-semibold underline flex items-center justify-end gap-1 ml-auto cursor-pointer"
+              >
+                রিফ্রেশ করুন 🔄
+              </button>
+            </div>
           </div>
 
           {/* Notifications Simulator */}
@@ -1830,6 +2768,482 @@ export default function BulletinsAndSettings({
                 {loading && <Loader2 className="w-3 h-3 animate-spin" />}
                 নিশ্চিত করুন
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Global Notice & Limit Save Configuration Confirmation Modal */}
+      {noticeConfirmModalOpen && (
+        <div id="notice-confirm-modal" className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-in fade-in zoom-in-95 duration-200">
+            <h4 className="text-base font-bold text-white mb-2 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500 animate-pulse" />
+              সেটিংস পরিবর্তনের কনফার্মেশন অ্যালার্ট
+            </h4>
+            
+            <p className="text-slate-300 text-xs leading-relaxed mb-4">
+              আপনি কি নিশ্চিতভাবে গ্লোবাল নোটিশ এবং ফ্রি লিমিট কনফিগারেশনের করা পরিবর্তনগুলো সংরক্ষণ করতে চান? এর ফলে নতুন সেটিংসটি তৎক্ষণাৎ কার্যকর হবে।
+            </p>
+
+            <div className="flex gap-3 justify-end pt-3 border-t border-slate-800/60">
+              <button
+                type="button"
+                onClick={() => setNoticeConfirmModalOpen(false)}
+                className="bg-slate-800 hover:bg-slate-700 hover:text-white text-slate-300 px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all"
+              >
+                বাতিল করুন
+              </button>
+              <button
+                type="button"
+                onClick={executeUpdateNoticeAndConfigDirect}
+                className="px-4 py-2 rounded-xl text-xs font-semibold cursor-pointer transition-all text-white bg-amber-600 hover:bg-amber-500 flex items-center gap-1.5"
+              >
+                {loading && <Loader2 className="w-3 h-3 animate-spin" />}
+                হ্যাঁ, সেভ করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SEGMENT 6: Gemini API Keys Rotator Administration Pane */}
+      {activeSegment === "api_keys" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in text-xs">
+          {/* Create Backup Keys Panel */}
+          <div className="space-y-6">
+            <form
+              onSubmit={handleAddApiKey}
+              className="bg-slate-800/60 p-5 rounded-2xl border border-slate-700/50 space-y-4"
+            >
+              <h4 className="text-md font-bold text-amber-400 flex items-center gap-1.5">
+                <Zap className="w-5 h-5 text-amber-500 animate-pulse" />
+                নতুন ব্যাকআপ এপিআই কী যুক্ত করুন (Add Backup API Key)
+              </h4>
+
+              <p className="text-slate-400 text-[11px] leading-relaxed">
+                এখানে আপনি অতিরিক্ত গুগল জেমিনি এপিআই কী সংযুক্ত করতে পারেন। যখন মূল কীটির লিমিট শেষ হয়ে যাবে, তখন সিস্টেম স্বয়ংক্রিয়ভাবে একটির পর একটি এখানে থাকা সচল কী যুক্ত করে কাজ চালিয়ে যাবে।
+              </p>
+
+              <div>
+                <label className="text-slate-300 text-xs font-semibold block mb-1">এপিআই কী লেবেল (Label) *</label>
+                <input
+                  type="text"
+                  required
+                  value={newApiKeyLabel}
+                  onChange={(e) => setNewApiKeyLabel(e.target.value)}
+                  placeholder="যেমন: Backup API Key - BCS Course"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-500 h-[38px]"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 text-xs font-semibold block mb-1 font-mono">GEMINI API KEY *</label>
+                <input
+                  type="password"
+                  required
+                  value={newApiKey}
+                  onChange={(e) => setNewApiKey(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-500 h-[38px] font-mono tracking-widest"
+                />
+                <span className="text-[10px] text-slate-500 mt-1 block">
+                  * নতুন কী সেভ করার সময় সিস্টেম স্বয়ংক্রিয়ভাবে গুগল এআই স্টুডিও সার্ভারের সাথে কানেক্ট করে এপিআই কী-টি সচল কিনা যাচাই করবে।
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={keysLoading}
+                  className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold text-xs py-2.5 rounded-lg h-[40px] cursor-pointer transition-all flex items-center justify-center gap-2"
+                >
+                  {keysLoading ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      ভ্যালিডেটিং এবং সেভিং...
+                    </>
+                  ) : (
+                    "যাচাই করুন এবং সেভ করুন"
+                  )}
+                </button>
+              </div>
+            </form>
+
+            <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-3">
+              <h5 className="font-bold text-slate-200">কীভাবে নতুন Gemini API Key তৈরি করবেন?</h5>
+              <div className="space-y-2 text-slate-400 leading-relaxed text-[11px]">
+                <p>১. প্রথমে <a href="https://aistudio.google.com/" target="_blank" rel="noopener noreferrer" className="text-teal-400 hover:underline">Google AI Studio</a>-তে আপনার জিমেইল দিয়ে লগইন করুন।</p>
+                <p>২. বাম পাশের মেনু থেকে <strong>"Get API Key"</strong>-তে ক্লিক করুন।</p>
+                <p>৩. <strong>Create API Key</strong> বাটনে চাপ দিয়ে প্রজেক্ট সিলেক্ট করুন এবং সম্পূর্ণ নতুন একটি কী জেনারেট করে কপি করে নিয়ে এখানে সাবমিট করুন।</p>
+                <p>৪. একটি কী-র লিমিট শেষ হলে স্বয়ংক্রিয় রোটেটর সিস্টেম পরবর্তী কী-কে রি-অ্যাক্টিভ করে দিবে।</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Backup Keys List & Status Panel */}
+          <div className="space-y-4">
+            <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 space-y-4">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-700/40">
+                <div>
+                  <span className="text-slate-200 text-sm font-bold block">যুক্ত করা রোটেটিং ব্যাকআপ কীসমূহ</span>
+                  <span className="text-[10px] text-slate-500 font-mono block">GEMINI DYNAMIC KEY COOLDOWNS</span>
+                </div>
+                <button
+                  onClick={handleResetApiKeysStatus}
+                  disabled={keysLoading}
+                  className="bg-teal-500/10 hover:bg-teal-500 text-teal-400 hover:text-white px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all disabled:opacity-50"
+                >
+                  রিসেট এবং পুনরায় নিষ্ক্রিয়তা দূর করুন
+                </button>
+              </div>
+
+              <div className="space-y-4 max-h-[550px] overflow-y-auto pr-1">
+                {/* 1. Show Primary Env Key if available */}
+                {envKeyInfo && envKeyInfo.hasEnvKey && (
+                  <div className="p-4 bg-teal-950/20 rounded-xl border border-teal-500/20 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1 w-[80%]">
+                        <h4 className="font-bold text-teal-300 text-xs flex items-center gap-1.5 flex-wrap">
+                          <span>প্রাইমারি এপিআই কী (Environment KEY)</span>
+                          {envKeyInfo.envKeyCooldown && new Date(envKeyInfo.envKeyCooldown) > new Date() ? (
+                            <span className="bg-amber-500/10 text-amber-500 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md">
+                              COOLDOWN (লিমিট শেষ)
+                            </span>
+                          ) : (
+                            <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md">
+                              ACTIVE (সচল)
+                            </span>
+                          )}
+                        </h4>
+                        <div className="flex items-center gap-2 mt-1.5">
+                          <p className="font-mono text-[10px] text-slate-300 break-all select-all flex-1 py-1 px-2 bg-slate-900/60 rounded border border-slate-800">
+                            {visibleKeys["primary_env"] ? envKeyInfo.envKey : envKeyInfo.envKeyMasked}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => toggleKeyVisibility("primary_env")}
+                            className="text-slate-400 hover:text-teal-400 p-1.5 rounded bg-slate-800/40 hover:bg-slate-800 transition-colors"
+                            title={visibleKeys["primary_env"] ? "লুকিয়ে রাখুন" : "মেলা দেখান"}
+                          >
+                            {visibleKeys["primary_env"] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => envKeyInfo.envKey && handleCopyKey(envKeyInfo.envKey, "primary_env")}
+                            className="text-slate-400 hover:text-teal-400 p-1.5 rounded bg-slate-800/40 hover:bg-slate-800 transition-colors"
+                            title="কপি করুন"
+                          >
+                            {copiedKeyId === "primary_env" ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                      </div>
+                      <span className="text-[9px] bg-teal-500/15 text-teal-400 px-2 py-0.5 rounded font-bold font-mono">
+                        DEFAULT
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. Show Backup Keys */}
+                {backupKeys.length === 0 ? (
+                  (!envKeyInfo || !envKeyInfo.hasEnvKey) && (
+                    <div className="text-center py-12 text-slate-500">
+                      এখনো কোনো অতিরিক্ত ব্যাকআপ কী যুক্ত করা হয়নি। আজকের জেনারেশন লিমিট ও কোটা নিরাপদে রাখতে বাম পাশের ফর্ম থেকে অতিরিক্ত কী বাড়িয়ে নিন।
+                    </div>
+                  )
+                ) : (
+                  backupKeys.map((k) => {
+                    const isLimited = k.status === "rate_limited";
+                    const isInvalid = k.status === "invalid";
+                    const keyVal = k.key || "";
+                    const isVisible = !!visibleKeys[k.id];
+                    return (
+                      <div
+                        key={k.id}
+                        className="p-4 bg-slate-900/60 rounded-xl border border-slate-800/80 space-y-3"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="space-y-1 w-[80%]">
+                            <h4 className="font-bold text-slate-100 flex items-center gap-1.5 flex-wrap">
+                              <span>{k.label}</span>
+                              {isLimited && (
+                                <span className="bg-amber-500/10 text-amber-500 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md">
+                                  COOLDOWN (লিমিট শেষ)
+                                </span>
+                              )}
+                              {isInvalid && (
+                                <span className="bg-red-500/10 text-red-500 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md">
+                                  INVALID (অচল কী)
+                                </span>
+                              )}
+                              {k.status === "active" && (
+                                <span className="bg-emerald-500/10 text-emerald-400 text-[9px] font-mono font-bold px-1.5 py-0.5 rounded-md">
+                                  ACTIVE (সচল)
+                                </span>
+                              )}
+                            </h4>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <p className="font-mono text-[10px] text-slate-300 break-all select-all flex-1 py-1 px-2 bg-slate-900/60 rounded border border-slate-800">
+                                {isVisible ? keyVal : k.keyMasked}
+                              </p>
+                              <button
+                                type="button"
+                                onClick={() => toggleKeyVisibility(k.id)}
+                                className="text-slate-400 hover:text-teal-400 p-1.5 rounded bg-slate-800/40 hover:bg-slate-800 transition-colors"
+                                title={isVisible ? "লুকিয়ে রাখুন" : "মেলা দেখান"}
+                              >
+                                {isVisible ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleCopyKey(keyVal, k.id)}
+                                className="text-slate-400 hover:text-teal-400 p-1.5 rounded bg-slate-800/40 hover:bg-slate-800 transition-colors"
+                                title="কপি করুন"
+                              >
+                                {copiedKeyId === k.id ? <CheckCircle className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handleDeleteApiKey(k.id)}
+                            className="bg-red-500/10 text-red-500 hover:text-white hover:bg-red-500 p-1.5 rounded-lg transition-all shrink-0"
+                            title="মুছে ফেলুন"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 text-[10px] text-slate-400 pt-2 border-t border-slate-800/40">
+                          <div>
+                            <span className="text-slate-500">সর্বশেষ ব্যবহৃত:</span>{" "}
+                            {k.lastUsed ? new Date(k.lastUsed).toLocaleTimeString() : "ব্যবহার হয়নি"}
+                          </div>
+                          <div>
+                            <span className="text-slate-500">লিমিট সচল হবে:</span>{" "}
+                            {k.cooldownUntil ? new Date(k.cooldownUntil).toLocaleTimeString() : "এখনই সচল আছে"}
+                          </div>
+                        </div>
+
+                        {k.errorMessage && (
+                          <div className="bg-red-500/5 text-red-400 p-2 rounded-lg text-[10px] border border-red-500/10 font-mono">
+                            LastError: {k.errorMessage}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SEGMENT 7: Firebase Mobile Phone Auth Test Panel */}
+      {activeSegment === "phone_auth" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-fade-in text-xs">
+          {/* Controls form */}
+          <div className="space-y-6">
+            <div className="bg-slate-800/60 p-6 rounded-2xl border border-slate-700/50 space-y-5">
+              <h4 className="text-md font-bold text-emerald-400 flex items-center gap-1.5">
+                <Smartphone className="w-5 h-5 text-emerald-500" />
+                ফায়ারবেস মোবাইল ওটিপি ট্রায়াল চেকার (Firebase Phone Auth Tester)
+              </h4>
+
+              <p className="text-slate-300 text-xs leading-relaxed">
+                এটি একটি <b>লাইভ ফায়ারবেস অথেনটিকেশন মোবাইল ওটিপি চেকার</b>। আপনি দেখতে চান ফায়ারবেস দিয়ে আসলেই মোবাইল নম্বর ভেরিফাই করা যায় কিনা এবং ওটিপি (OTP Code) ফায়ারবেস থেকে সরাসরি ফোনে আসে কিনা। সরাসরি আপনার ফোন নম্বর দিয়ে পরীক্ষা করুন!
+              </p>
+
+              {/* Status messaging */}
+              {verificationError && (
+                <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-red-300 flex items-start gap-2 animate-fade-in">
+                  <XCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-500" />
+                  <span className="leading-relaxed text-[11px] font-medium">{verificationError}</span>
+                </div>
+              )}
+
+              {verificationSuccess && (
+                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-300 flex items-start gap-2 animate-fade-in">
+                  <CheckCircle className="w-4 h-4 shrink-0 mt-0.5 text-emerald-500" />
+                  <span className="leading-relaxed text-[11px] font-medium">{verificationSuccess}</span>
+                </div>
+              )}
+
+              {/* Step 1: Send OTP phone input */}
+              {!otpSent ? (
+                <form onSubmit={handleSendOtp} className="space-y-4">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider block">ধাপ ১: মোবাইল নাম্বার ইনপুট</span>
+                    
+                    <div>
+                      <label className="text-slate-400 text-xs font-semibold block mb-1">আপনার বা পরীক্ষামূলক মোবাইল নম্বর</label>
+                      <input
+                        type="tel"
+                        required
+                        disabled={phoneLoading}
+                        value={testPhoneNumber}
+                        onChange={(e) => setTestPhoneNumber(e.target.value)}
+                        placeholder="যেমন: +88017XXXXXXXX বা 017XXXXXXXX"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3.5 py-2.5 text-xs text-white outline-none focus:border-emerald-400 h-[40px] font-mono tracking-wider"
+                      />
+                      <span className="text-[10px] text-slate-500 block mt-1">
+                        * জিরো (0) দিয়ে শুরু করলে বাংলাদেশ কোড (+88) স্বয়ংক্রিয়ভাবে যুক্ত হবে।
+                      </span>
+                    </div>
+
+                    {/* Google ReCAPTCHA placeholder - Firebase inserts recaptcha widget here */}
+                    <div className="py-2 flex justify-center">
+                      <div id="recaptcha-container" className="overflow-hidden rounded-lg border border-slate-800 shadow"></div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={phoneLoading}
+                    className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 disabled:opacity-50 text-slate-950 font-bold text-xs py-3 rounded-xl cursor-pointer transition-all flex items-center justify-center gap-2 shadow-lg h-[44px]"
+                  >
+                    {phoneLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                        ওটিপি রিকোয়েস্ট পাঠানো হচ্ছে...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-4 h-4 text-slate-950" />
+                        ফোনে ওটিপি পাঠান (Send OTP SMS)
+                      </>
+                    )}
+                  </button>
+                </form>
+              ) : (
+                /* Step 2: Code confirmation input */
+                <form onSubmit={handleVerifyOtp} className="space-y-4">
+                  <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider block">ধাপ ২: ওটিপি কোড যাচাইকরণ</span>
+                    
+                    <div>
+                      <label className="text-slate-400 text-xs font-semibold block mb-1">ফোনে আগত ৬ ডিজিটের ভেরিফিকেশন কোড (OTP)</label>
+                      <input
+                        type="text"
+                        required
+                        maxLength={6}
+                        disabled={phoneLoading}
+                        value={testOtpCode}
+                        onChange={(e) => setTestOtpCode(e.target.value)}
+                        placeholder="ভেরিফিকেশন কোড দিন (যেমন: 123456)"
+                        className="w-full bg-slate-900 border border-slate-700/80 rounded-lg px-3.5 py-2.5 text-xs text-white outline-none focus:border-emerald-400 h-[40px] font-mono tracking-widest text-center"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 pb-2">
+                    <button
+                      type="button"
+                      onClick={resetPhoneAuthTester}
+                      disabled={phoneLoading}
+                      className="bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 font-bold py-2.5 rounded-xl cursor-pointer transition-all text-xs h-[42px]"
+                    >
+                      নাম্বার পরিবর্তন করুন
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={phoneLoading}
+                      className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-slate-950 font-bold py-2.5 rounded-xl cursor-pointer transition-all text-xs flex items-center justify-center gap-1.5 h-[42px]"
+                    >
+                      {phoneLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-950" /> : <Sparkles className="w-3.5 h-3.5 text-slate-950 animate-pulse" />}
+                      কোড ভেরিফাই করুণ
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {/* Verified Result Data */}
+              {verifiedUserInfo && (
+                <div className="bg-emerald-950/35 border border-emerald-500/20 rounded-2xl p-4 space-y-3 animate-scale-in col-span-1 lg:col-span-2">
+                  <div className="flex items-center gap-2 text-emerald-400 font-bold text-xs uppercase">
+                    <CheckCircle className="w-4 h-4 text-emerald-500" />
+                    ফায়ারবেস রিটার্নড ডাটা (Verified Object):
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-2 text-[10px] font-mono text-slate-300">
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800 flex justify-between">
+                      <span className="text-slate-500">Firebase User UID:</span>
+                      <span className="text-slate-200 select-all font-bold">{verifiedUserInfo.uid}</span>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800 flex justify-between">
+                      <span className="text-slate-500">Verified Phone Number:</span>
+                      <span className="text-emerald-400 font-bold">{verifiedUserInfo.phoneNumber}</span>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800 flex justify-between">
+                      <span className="text-slate-500">Auth Method/Provider:</span>
+                      <span className="text-blue-400 uppercase font-bold">{verifiedUserInfo.provider}</span>
+                    </div>
+
+                    <div className="bg-slate-950/80 p-2 rounded border border-slate-800 flex justify-between">
+                      <span className="text-slate-500">Account Created:</span>
+                      <span className="text-slate-400">{verifiedUserInfo.createdAt}</span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={resetPhoneAuthTester}
+                    className="w-full bg-slate-900 hover:bg-slate-850 hover:text-white border border-slate-800 py-2 rounded-xl text-[10px] font-semibold text-slate-400 cursor-pointer transition-colors"
+                  >
+                    নতুন টেস্ট শুরু করুন
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Guide explanations Panel */}
+          <div className="space-y-6">
+            <div className="bg-slate-800/60 p-6 rounded-2xl border border-slate-700/50 space-y-4">
+              <h4 className="text-md font-bold text-teal-400 flex items-center gap-1.5">
+                <Globe className="w-5 h-5 text-teal-500" />
+                ফায়ারবেস ফোন অথেনটিকেশন কিভাবে কাজ করে?
+              </h4>
+
+              <div className="text-slate-300 space-y-3 text-xs leading-relaxed">
+                <p>
+                  ফায়ারবেস ফোন অথেনটিকেশন (Firebase Phone Authentication) একটি অত্যন্ত বিশ্বস্ত, দ্রুত এবং কম খরচের মাধ্যম যার সাহায্যে সরাসরি ওটিপি পাঠিয়ে ইউজার ভেরিফিকেশন করা সম্ভব।
+                </p>
+
+                <div className="h-px bg-slate-700/50" />
+
+                <h5 className="font-bold text-white text-[13px] flex items-center gap-1.5 pt-1">
+                  🔧 ডেভেলপমেন্ট ও ফ্রি টেস্ট করার সুবিধা:
+                </h5>
+                <p className="text-slate-400 text-[11px]">
+                  গুগল ফায়ারবেস প্রতিটি প্রজেক্টে বা অ্যাপে <b>প্রতি মাসে বিনামূল্যে ১০,০০০ টি SMS OTP</b> পাঠানোর সুযোগ দেয়! এর ফলে ডেভেলপমেন্ট স্টেজে কোনো ডলার বা টাকা পরিশোধ করা ছাড়াই আপনারা ওটিপি সার্ভিস ফুললি টেস্ট করে প্রোডাক্ট লাইভ করতে পারবেন।
+                </p>
+
+                <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-3.5 space-y-2">
+                  <h6 className="font-bold text-emerald-400 text-xs uppercase tracking-wider flex items-center gap-1">
+                    💡 ফোন নম্বর টেস্টিং হোয়ایتলিস্ট ট্রিক:
+                  </h6>
+                  <p className="text-[11px] text-slate-300">
+                    আপনি যদি চান রিয়েল এসএমএস (SMS Credit) খরচ না করে বা চার্জ ছাড়াই বারবার ফাস্ট ভেরিফিকেশন টেস্ট করতে, তাহলে ফায়ারবেস কনসোলে একটি <b>"Test Phone Number"</b> যুক্ত করে রাখতে পারেন:
+                  </p>
+                  <ol className="list-decimal pl-4 space-y-1 text-slate-400 text-[11px]">
+                    <li>ফায়ারবেস কনসোলের <b>Authentication &gt; Sign-in method &gt; Phone</b> সেকশনে যান।</li>
+                    <li>সেখানের <b>"Phone numbers for testing (optional)"</b> অপশনটি খুলুন।</li>
+                    <li>আপনার নম্বর (যেমন: <code className="text-teal-400 font-mono">+8801700000000</code>) এবং একটি স্থায়ী টেস্ট ওটিপি কোড (যেমন: <code className="text-teal-400 font-mono">123456</code>) লিখে এড করুন।</li>
+                    <li>এখন ওই নাম্বার দিয়ে টেস্ট করলে মোবাইলে এসএমএস না আসলেও <code className="text-teal-400 font-mono">123456</code> দিয়েই আপনি যেকোনো কম্পিউটার বা মোবাইল থেকে ফায়ারবেসকে সাথে সাথে ভেরিফাই করতে পারবেন!</li>
+                  </ol>
+                </div>
+
+                <h5 className="font-bold text-white text-[13px] flex items-center gap-1.5 pt-1">
+                  🔒 ReCAPTCHA ভেরিফাইয়ার কি জন্য দরকার?
+                </h5>
+                <p className="text-slate-400 text-[11px]">
+                  ফায়ারবেস আপনার সিস্টেমকে স্প্যাম বোট বা অটোমেটেড প্রোগ্রাম থেকে রক্ষা করার জন্য ReCAPTCHA সিকিউরিটি বাধ্যবাধকতা করেছে যেন কেউ স্ক্রিপ্ট চালিয়ে আপনার দৈনিক ফির্ফ্রি ওটিপি ব্যালেন্স বা এসএমএস কোটা নষ্ট করতে না পারে। ReCAPTCHA সফলভাবে ফিলআপ করলেই কেবল গুগল আপনার ফোনে আসল ওটিপি এসএমএস পাঠায়।
+                </p>
+              </div>
             </div>
           </div>
         </div>

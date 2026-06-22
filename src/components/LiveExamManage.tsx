@@ -31,7 +31,8 @@ import {
   query,
   where,
   orderBy,
-  serverTimestamp
+  serverTimestamp,
+  limit
 } from "firebase/firestore";
 import { db } from "../lib/firebase";
 import { resolveApiUrl } from "../lib/api";
@@ -488,8 +489,68 @@ export default function LiveExamManage({
           list = generatedMockResults;
         }
       } else {
-        const snap = await getDocs(query(collection(db, "exam_results"), where("examId", "==", exam.id)));
-        list = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ExamResult));
+        const collectionsToTry = [
+          "exam_results",
+          "results",
+          "live_exam_results",
+          "exam_submissions",
+          "submissions",
+          "user_exams",
+          "user_results",
+          "user_submissions",
+          "scores",
+          "exam_history",
+          "leaderboard"
+        ];
+        
+        const fetchPromises = collectionsToTry.map(async (colName) => {
+          try {
+            const colRef = collection(db, colName);
+            const q = query(colRef, limit(350));
+            const snap = await getDocs(q);
+            return { colName, docs: snap.docs };
+          } catch (err: any) {
+            console.warn(`Optional results collection fetch from '${colName}' failed:`, err.message || err);
+            return { colName, docs: [] };
+          }
+        });
+
+        const fetchedGroups = await Promise.all(fetchPromises);
+        const mergedMap = new Map<string, ExamResult>();
+
+        fetchedGroups.forEach(({ colName, docs }) => {
+          docs.forEach((doc) => {
+            const data = doc.data();
+            const docExamId = data.examId || data.exam_id || data.liveExamId || data.testId || data.test_id || data.examCode || data.id || "";
+            
+            // Match exam ID securely
+            if (docExamId && String(docExamId).trim() === String(exam.id).trim()) {
+              const resId = doc.id;
+              
+              const userId = data.userId || data.uid || data.user_id || data.studentId || "";
+              const email = data.email || data.userEmail || data.mail || data.user_email || data.studentEmail || data.username || userId || "অজ্ঞাতনামা শিক্ষার্থী";
+              
+              const correct = Number(data.correct !== undefined ? data.correct : (data.correctAnswers !== undefined ? data.correctAnswers : (data.correctCount !== undefined ? data.correctCount : (data.right !== undefined ? data.right : (data.rightCount !== undefined ? data.rightCount : 0)))));
+              
+              const wrong = Number(data.wrong !== undefined ? data.wrong : (data.wrongAnswers !== undefined ? data.wrongAnswers : (data.wrongCount !== undefined ? data.wrongCount : (data.incorrect !== undefined ? data.incorrect : (data.incorrectCount !== undefined ? data.incorrectCount : 0)))));
+              
+              const score = Number(data.score !== undefined ? data.score : (data.points !== undefined ? data.points : (data.marks !== undefined ? data.marks : (data.obtainedMarks !== undefined ? data.obtainedMarks : (data.totalScore !== undefined ? data.totalScore : 0)))));
+
+              mergedMap.set(resId, {
+                id: resId,
+                examId: exam.id,
+                userId,
+                email,
+                correct,
+                wrong,
+                score,
+                createdAt: data.createdAt || data.created_at || data.timestamp || ""
+              } as ExamResult);
+            }
+          });
+        });
+
+        list = Array.from(mergedMap.values());
       }
       // Sort scores descending
       list.sort((a, b) => b.score - a.score);

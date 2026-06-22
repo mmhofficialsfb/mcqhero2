@@ -35,6 +35,7 @@ interface DashboardStatsProps {
   examCount: number;
   highestScore: number;
   averageScore: number;
+  userProfile?: UserProfile | null;
 }
 
 export default function DashboardStats({

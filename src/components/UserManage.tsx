@@ -25,8 +25,8 @@ import {
   DollarSign
 } from "lucide-react";
 import { doc, updateDoc, deleteDoc, getDoc, collection, where, getDocs, query, limit } from "firebase/firestore";
-import { db } from "../lib/firebase";
-import { UserProfile, Course, Category, ExamResult } from "../types";
+import { db, auth } from "../lib/firebase";
+import { UserProfile, Course, Category, ExamResult, SuspensionLog } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 
 interface UserManageProps {
@@ -61,6 +61,11 @@ export default function UserManage({ users, courses, categories = [], triggerRel
   const [activeDetailTab, setActiveDetailTab] = useState<"profile" | "exams" | "payments" | "activity">("profile");
   const [loadingDetails, setLoadingDetails] = useState<boolean>(false);
 
+  // Suspension History states
+  const [banningUser, setBanningUser] = useState<UserProfile | null>(null);
+  const [banReasonText, setBanReasonText] = useState("");
+  const [selectedHistoryUser, setSelectedHistoryUser] = useState<UserProfile | null>(null);
+
   useEffect(() => {
     if (!selectedDetailUser) return;
     
@@ -71,18 +76,70 @@ export default function UserManage({ users, courses, categories = [], triggerRel
         const uid = selectedDetailUser.id || selectedDetailUser.uid;
         const email = selectedDetailUser.email;
         
-        // 1. Fetch exam results
+        // 1. Fetch exam results with multi-collection fallback and in-memory matching to avoid index requirements
         let matchedResults: ExamResult[] = [];
         try {
-          const resultsSnap = await getDocs(
-            query(
-              collection(db, "exam_results"),
-              where("userId", "==", uid)
-            )
-          );
-          resultsSnap.forEach((docSnap) => {
-            matchedResults.push({ id: docSnap.id, ...docSnap.data() } as ExamResult);
+          const collectionsToTry = [
+            "exam_results",
+            "results",
+            "live_exam_results",
+            "exam_submissions",
+            "submissions",
+            "user_exams",
+            "user_results",
+            "user_submissions",
+            "scores",
+            "exam_history",
+            "leaderboard"
+          ];
+          
+          const fetchPromises = collectionsToTry.map(async (colName) => {
+            try {
+              const colRef = collection(db, colName);
+              const q = query(colRef, limit(300));
+              const snap = await getDocs(q);
+              return { colName, docs: snap.docs };
+            } catch (err: any) {
+              console.warn(`Optional results collection fetch from '${colName}' failed:`, err.message || err);
+              return { colName, docs: [] };
+            }
           });
+
+          const fetchedGroups = await Promise.all(fetchPromises);
+          const mergedMap = new Map<string, ExamResult>();
+
+          fetchedGroups.forEach(({ colName, docs }) => {
+            docs.forEach((doc) => {
+              const data = doc.data();
+              const docUserId = data.userId || data.uid || data.user_id || data.studentId || "";
+              
+              // Match user ID or email
+              if (
+                (docUserId && String(docUserId).trim() === String(uid).trim()) ||
+                (data.email && email && String(data.email).trim().toLowerCase() === String(email).trim().toLowerCase())
+              ) {
+                const resId = doc.id;
+                
+                const examId = data.examId || data.exam_id || data.liveExamId || data.testId || data.test_id || data.examCode || "";
+                const correct = Number(data.correct !== undefined ? data.correct : (data.correctAnswers !== undefined ? data.correctAnswers : (data.correctCount !== undefined ? data.correctCount : (data.right !== undefined ? data.right : (data.rightCount !== undefined ? data.rightCount : 0)))));
+                const wrong = Number(data.wrong !== undefined ? data.wrong : (data.wrongAnswers !== undefined ? data.wrongAnswers : (data.wrongCount !== undefined ? data.wrongCount : (data.incorrect !== undefined ? data.incorrect : (data.incorrectCount !== undefined ? data.incorrectCount : 0)))));
+                const score = Number(data.score !== undefined ? data.score : (data.points !== undefined ? data.points : (data.marks !== undefined ? data.marks : (data.obtainedMarks !== undefined ? data.obtainedMarks : (data.totalScore !== undefined ? data.totalScore : 0)))));
+
+                mergedMap.set(resId, {
+                  id: resId,
+                  examId,
+                  userId: uid,
+                  email: email || data.email || "অজ্ঞাতনামা শিক্ষার্থী",
+                  correct,
+                  wrong,
+                  score,
+                  createdAt: data.createdAt || data.created_at || data.timestamp || new Date().toISOString()
+                } as ExamResult);
+              }
+            });
+          });
+
+          matchedResults = Array.from(mergedMap.values());
         } catch (err) {
           console.warn("Failed to fetch exam results from firestore:", err);
         }
@@ -486,40 +543,61 @@ export default function UserManage({ users, courses, categories = [], triggerRel
     });
   };
 
-  // Toggle Ban Status
+  // Toggle Ban Status (Opens reason modal)
   const toggleBan = (u: UserProfile) => {
+    setBanningUser(u);
+    setBanReasonText("");
+  };
+
+  const handleConfirmBan = async () => {
+    if (!banningUser) return;
+    const u = banningUser;
     const isBanned = u.banned || false;
-    setConfirmConfig({
-      title: isBanned ? "অ্যাকাউন্ট আনব্যান করুন" : "অ্যাকাউন্ট ব্যান করুন",
-      description: `আপনি কি নিশ্চিত যে ${u.email} কে ${isBanned ? "আনব্যান" : "ব্যান"} করতে চান?`,
-      onConfirm: async () => {
-        try {
-          await updateDoc(doc(db, "users", u.id || u.uid), {
-            banned: !isBanned
-          });
-          alert(`ইউজার সফলভাবে ${isBanned ? "আনব্যান" : "ব্যান"} হয়েছেন!`);
-          triggerReload();
-        } catch (err: any) {
-          console.warn("Firestore update failed, falling back to local storage:", err);
-          const localUsersStr = localStorage.getItem("local_users");
-          if (localUsersStr) {
-            const localUsers = JSON.parse(localUsersStr) as UserProfile[];
-            const targetId = u.id || u.uid;
-            const updatedUsers = localUsers.map((usr) => {
-              if ((usr.id || usr.uid) === targetId) {
-                return { ...usr, banned: !isBanned };
-              }
-              return usr;
-            });
-            localStorage.setItem("local_users", JSON.stringify(updatedUsers));
-            alert(`ইউজার সফলভাবে ${isBanned ? "আনব্যান" : "ব্যান"} হয়েছেন! (স্যান্ডবক্স মোড)`);
-            triggerReload();
-          } else {
-            alert("ব্যর্থ হয়েছে: " + err.message);
+    const actionName = isBanned ? "unbanned" : "banned";
+    const reasonValue = banReasonText.trim() || (isBanned ? "সাধারণ আনব্যান করা হয়েছে" : "সাধারণ ব্যান বা সাসপেনশন");
+    
+    const newLog: SuspensionLog = {
+      id: "log_" + Date.now(),
+      action: actionName,
+      reason: reasonValue,
+      timestamp: new Date().toISOString(),
+      operator: auth.currentUser?.email || "admin@mcqhero.com"
+    };
+
+    const updatedHistory = [...(u.suspensionHistory || []), newLog];
+
+    try {
+      await updateDoc(doc(db, "users", u.id || u.uid), {
+        banned: !isBanned,
+        suspensionHistory: updatedHistory
+      });
+      alert(`ইউজার সফলভাবে ${isBanned ? "আনব্যান" : "ব্যান"} হয়েছেন!`);
+      setBanningUser(null);
+      triggerReload();
+    } catch (err: any) {
+      console.warn("Firestore update failed, falling back to local storage:", err);
+      const localUsersStr = localStorage.getItem("local_users");
+      if (localUsersStr) {
+        const localUsers = JSON.parse(localUsersStr) as UserProfile[];
+        const targetId = u.id || u.uid;
+        const updatedUsers = localUsers.map((usr) => {
+          if ((usr.id || usr.uid) === targetId) {
+            return { 
+              ...usr, 
+              banned: !isBanned,
+              suspensionHistory: [...(usr.suspensionHistory || []), newLog]
+            };
           }
-        }
+          return usr;
+        });
+        localStorage.setItem("local_users", JSON.stringify(updatedUsers));
+        alert(`ইউজার সফলভাবে ${isBanned ? "আনব্যান" : "ব্যান"} হয়েছেন! (স্যান্ডবক্স মোড)`);
+        setBanningUser(null);
+        triggerReload();
+      } else {
+        alert("ব্যর্থ হয়েছে: " + err.message);
       }
-    });
+    }
   };
 
   // Delete User
@@ -1022,6 +1100,15 @@ export default function UserManage({ users, courses, categories = [], triggerRel
                       title={u.banned ? "আনব্যান করুন" : "ব্যান করুন"}
                     >
                       <Ban className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedHistoryUser(u);
+                      }}
+                      className="bg-slate-900 hover:bg-teal-600/20 border border-slate-700 hover:border-teal-500/30 p-2 rounded-lg h-8 text-slate-400 hover:text-teal-400 transition-colors cursor-pointer flex items-center justify-center"
+                      title="ব্যান বা সাসপেনশন হিস্ট্রি দেখুন"
+                    >
+                      <History className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => deleteUser(u)}
@@ -1730,6 +1817,147 @@ export default function UserManage({ users, courses, categories = [], triggerRel
                 className="px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg text-xs font-semibold cursor-pointer transition-colors"
               >
                 নিশ্চিত করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Suspension Action / Ban Reason Input Modal */}
+      {banningUser && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700/50 rounded-2xl max-w-md w-full p-6 shadow-2xl relative animate-scale-in">
+            <button
+              onClick={() => setBanningUser(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 text-red-500 mb-4">
+              <Ban className="w-6 h-6 shrink-0" />
+              <h4 className="text-base font-bold text-white">
+                {banningUser.banned ? "শিক্ষার্থী অ্যাকাউন্ট আনব্যান করুন" : "শিক্ষার্থী অ্যাকাউন্ট ব্যান/স্থগিত করুন"}
+              </h4>
+            </div>
+            <div className="mb-4 bg-slate-950/50 border border-slate-800 p-3.5 rounded-xl">
+              <p className="text-slate-400 text-xs font-semibold mb-1">শিক্ষার্থীর ইমেইল:</p>
+              <p className="text-white text-sm font-mono break-all">{banningUser.email}</p>
+              <p className="text-[11px] text-slate-500 mt-1.5 font-medium">
+                স্ট্যাটাস পরিবর্তন: <strong className="font-bold text-amber-500">{banningUser.banned ? "ব্যানড ➜ সচল" : "সচল ➜ ব্যানড (স্থগিত)"}</strong>
+              </p>
+            </div>
+            
+            <div className="space-y-2 mb-6">
+              <label className="block text-xs font-bold text-slate-400 uppercase tracking-wide">
+                অ্যাকশনের বা ব্যান সাসপেনশনের কারণ লিখুন:
+              </label>
+              <textarea
+                className="w-full bg-slate-950 border border-slate-750 rounded-xl p-3 text-xs text-white outline-none focus:border-teal-500 min-h-[90px] resize-none"
+                placeholder={banningUser.banned ? "আনব্যান করার কারণ লিখুন (ঐচ্ছিক)..." : "সংক্ষিপ্ত কারণ লিখুন যা ইতিহাসে রেকর্ড থাকবে..."}
+                value={banReasonText}
+                onChange={(e) => setBanReasonText(e.target.value)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-3 pt-3 border-t border-slate-800">
+              <button
+                onClick={() => setBanningUser(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                বাতিল
+              </button>
+              <button
+                onClick={handleConfirmBan}
+                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors flex items-center gap-1.5"
+              >
+                <CheckCircle className="w-3.5 h-3.5" />
+                পরিবর্তন নিশ্চিত করুন
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Suspension History Log Modal */}
+      {selectedHistoryUser && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm flex items-center justify-center z-[110] p-4 animate-fade-in">
+          <div className="bg-slate-900 border border-slate-700/50 rounded-2xl max-w-lg w-full p-6 shadow-2xl relative animate-scale-in flex flex-col max-h-[85vh]">
+            <button
+              onClick={() => setSelectedHistoryUser(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-white transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="flex items-center gap-3 text-teal-400 mb-4 shrink-0">
+              <History className="w-6 h-6 shrink-0" />
+              <div>
+                <h4 className="text-base font-bold text-white">সাসপেনশন ও ব্যান হিস্ট্রি</h4>
+                <p className="text-xs text-slate-400 font-mono truncate max-w-[340px]">{selectedHistoryUser.email}</p>
+              </div>
+            </div>
+
+            {/* History Logs Container */}
+            <div className="flex-1 overflow-y-auto pr-1 my-3 space-y-3 min-h-[160px]">
+              {!selectedHistoryUser.suspensionHistory || selectedHistoryUser.suspensionHistory.length === 0 ? (
+                <div className="bg-slate-950/30 border border-slate-800/80 rounded-xl p-8 text-center flex flex-col items-center justify-center">
+                  <Clock className="w-8 h-8 text-slate-600 mb-2" />
+                  <p className="text-slate-400 text-xs font-semibold">কোনো পূর্ব রেকর্ড পাওয়া যায়নি</p>
+                  <p className="text-slate-500 text-[11px] mt-1">এই শিক্ষার্থীর পূর্বের কোনো অ্যাকাউন্ট স্থগিতকারী/ব্যানড অ্যাকশন হিস্ট্রি ডাটাবেজে লকড করা নেই।</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {selectedHistoryUser.suspensionHistory.map((log: SuspensionLog, idx: number) => {
+                    const isBannedAction = log.action === "banned" || log.action === "suspended" || log.action === "deactivated";
+                    return (
+                      <div
+                        key={log.id || idx}
+                        className={`p-3.5 rounded-xl border ${
+                          isBannedAction 
+                            ? "bg-red-500/[0.02] border-red-500/20" 
+                            : "bg-teal-500/[0.02] border-teal-500/20"
+                        }`}
+                      >
+                        <div className="flex justify-between items-start gap-2 mb-2">
+                          <span className={`text-[10px] uppercase font-black px-2 py-0.5 rounded leading-none flex items-center gap-1 ${
+                            isBannedAction 
+                              ? "bg-red-500/15 text-red-400" 
+                              : "bg-teal-500/15 text-teal-400"
+                          }`}>
+                            {isBannedAction ? <Ban className="w-2.5 h-2.5" /> : <CheckCircle className="w-2.5 h-2.5" />}
+                            {isBannedAction ? "অ্যাকাউন্ট ব্যানড" : "অ্যাকাউন্ট আনব্যানড"}
+                          </span>
+                          <span className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {new Date(log.timestamp).toLocaleDateString("bn-BD", {
+                              year: "numeric",
+                              month: "long",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        </div>
+                        <p className="text-slate-200 text-xs leading-relaxed bg-slate-950/40 p-2.5 rounded-lg border border-slate-800 font-medium whitespace-pre-wrap">
+                          <span className="text-slate-500 text-[10px] font-bold block mb-1">কারণ বা মন্তব্য:</span>
+                          {log.reason}
+                        </p>
+                        <div className="mt-2 text-[10px] text-slate-500 flex items-center gap-1.5 justify-end">
+                          <span className="font-semibold text-slate-400">অপারেটর:</span>
+                          <span className="font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-850 text-[9px]">{log.operator}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end pt-3 border-t border-slate-800 shrink-0">
+              <button
+                onClick={() => setSelectedHistoryUser(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-750 text-slate-300 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
+              >
+                বন্ধ করুন
               </button>
             </div>
           </div>

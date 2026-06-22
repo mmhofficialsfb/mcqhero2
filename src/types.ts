@@ -101,6 +101,14 @@ export interface UserCourseLink {
   expiry: string;
 }
 
+export interface SuspensionLog {
+  id: string;
+  action: "banned" | "unbanned" | "suspended" | "deactivated" | "activated";
+  reason: string;
+  timestamp: string;
+  operator: string;
+}
+
 export interface UserProfile {
   id?: string;
   uid: string;
@@ -112,6 +120,7 @@ export interface UserProfile {
   premiumExpiry?: string;
   ownedCourses?: UserCourseLink[];
   allowedCategories?: string[];
+  suspensionHistory?: SuspensionLog[];
 }
 
 export interface ExamResult {
