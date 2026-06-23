@@ -346,10 +346,10 @@ async function startServer() {
       const questionsResult = await executeWithKeyRotation(async (ai, keyLabel) => {
         const response = await ai.models.generateContent({
           model: "gemini-3.5-flash",
-          contents: `Generate exactly ${questionCount} multiple choice questions (MCQs) in Bengali language on the topic: "${topic}". Make sure the questions are high-quality, professional, appropriate for competitive examinations like BCS, Primary, or Bank exams. Each question must have 4 distinct options, a correct answer index (1 to 4), and a detailed explanation in Bengali clarifying why that answer is correct. Follow the requested JSON schema structure precisely.`,
+          contents: `Generate exactly ${questionCount} multiple choice questions (MCQs) in Bengali language on the topic: "${topic}". Make sure the questions are high-quality, highly relevant for competitive examinations like BCS, Primary, or Bank exams. Keep all questions, answer options, and explanations extremely brief, concise, and straight-to-the-point. Do not output any wordy filler or introductory/concluding text. Each question must have a correct answer index (1 to 4) and a very short, crisp, single-sentence explanation in Bengali clarifying why that answer is correct. Follow the requested JSON schema structure precisely.`,
           config: {
-            systemInstruction: "You are an expert Bengali educationalist who drafts high-quality MCQ exam papers for BCS (Bangladesh Civil Service) and other government exams. Ensure correctness in language, spellings, options, and explanations. Do not include any HTML wrappers or text markdown outside of the JSON array.",
-            temperature: 0.7,
+            systemInstruction: "You are an expert Bengali educationalist drafting high-quality MCQ exam papers. Ensure correctness in Bengali spelling, language logic, and options. Keep the explanations extremely short (maximum 1 sentence/20 words) to save tokens and minimize rate limits. Do not include any HTML wrappers or markdown outside of the JSON array.",
+            temperature: 0.5,
             responseMimeType: "application/json",
             responseSchema: {
               type: import_genai.Type.ARRAY,
