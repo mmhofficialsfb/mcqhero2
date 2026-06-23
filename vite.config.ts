@@ -1,11 +1,17 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import fs from 'fs';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const hasGoogleServices = fs.existsSync(path.resolve(__dirname, 'android/app/google-services.json'));
+
   return {
     plugins: [react(), tailwindcss()],
+    define: {
+      __HAS_GOOGLE_SERVICES__: JSON.stringify(hasGoogleServices),
+    },
     build: {
       assetsInlineLimit: 100000000,
       chunkSizeWarningLimit: 100000000,

@@ -4,6 +4,9 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { db } from "./firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
+// Global build-time constant injected by Vite
+declare const __HAS_GOOGLE_SERVICES__: boolean;
+
 /**
  * Initializes and registers Capacitor Push Notifications and Local Notifications on Android.
  * Automatically saves the FCM Registration Token to Firestore under "admin_fcm_tokens" for the admin.
@@ -21,6 +24,12 @@ export async function initPushNotifications(userId: string, email: string) {
         console.warn("Failed to request Web Notification permission:", err);
       }
     }
+    return;
+  }
+
+  // Safety guard check for google-services.json existence at compile time
+  if (typeof __HAS_GOOGLE_SERVICES__ !== "undefined" && !__HAS_GOOGLE_SERVICES__) {
+    console.warn("FCM Push Notifications initialization aborted: google-services.json is not present in android/app. Safe local fallback.");
     return;
   }
 
