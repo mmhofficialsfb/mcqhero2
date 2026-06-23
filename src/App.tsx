@@ -1116,8 +1116,8 @@ export default function App() {
 
         <div className="max-w-md w-full space-y-8 bg-slate-900/60 border border-slate-700/50 p-8 sm:p-10 rounded-3xl backdrop-blur-md relative z-10 shadow-2xl">
           <div className="text-center">
-            <div className="mx-auto h-14 w-14 bg-teal-500/15 text-teal-400 rounded-2xl flex items-center justify-center p-3.5 border border-teal-500/20 shadow-inner">
-              <Sparkles className="w-full h-full animate-pulse" />
+            <div className="mx-auto h-20 w-20 rounded-2xl flex items-center justify-center border border-slate-700/50 shadow-xl overflow-hidden bg-slate-950">
+              <img src="/logo.png" alt="MCQ Hero Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
             </div>
             <h2 className="mt-5 text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center justify-center gap-1 font-display">
               MCQ Hero <span className="text-teal-400 font-medium">Admin</span>
@@ -1252,8 +1252,8 @@ export default function App() {
             {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
 
-          <div className="h-9 w-9 bg-teal-500/10 text-teal-400 rounded-xl flex items-center justify-center p-2 border border-teal-500/15">
-            <Sparkles className="w-full h-full" />
+          <div className="h-9 w-9 rounded-xl flex items-center justify-center border border-slate-700/60 overflow-hidden bg-slate-950">
+            <img src="/logo.png" alt="MCQ Hero Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
           </div>
           <div>
             <span className="text-sm font-extrabold text-white font-display select-none">
