@@ -1240,10 +1240,26 @@ export default function QuestionManage({
             )}
 
             <div className={`bg-slate-800/60 p-6 rounded-2xl border border-purple-500/30 space-y-4 transition-all duration-300 ${isLimitExceeded ? "opacity-60 pointer-events-none" : ""}`}>
-              <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-purple-400" />
-                Gemini AI ইন্টেলিজেন্ট কোশ্চেন ক্রিয়েটর (বাংলা ভাষা)
-              </h3>
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <h3 className="text-lg font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-400 flex items-center gap-2">
+                  <Sparkles className="w-5 h-5 text-purple-400" />
+                  Gemini AI ইন্টেলিজেন্ট কোশ্চেন ক্রিয়েটর (বাংলা ভাষা)
+                </h3>
+              </div>
+
+              {/* API Key Optimization Instruction Alert Box */}
+              <div className="bg-amber-500/10 border border-amber-500/20 p-3.5 rounded-xl text-amber-300 space-y-1.5 leading-relaxed text-[11.5px]">
+                <span className="font-bold block text-xs flex items-center gap-1.5 text-amber-400 font-bangla">
+                  🔑 এপিআই লিমিট শেষ হওয়া এড়াতে চান? (Save & Rotate API Keys)
+                </span>
+                <p className="font-bangla">
+                  ১. <b>মেমোরি/টোকেন অপ্টিমাইজেশন:</b> আমরা জেনারেশন প্রম্পট অপ্টিমাইজ করেছি যেন অল্প টোকেন খরচ করে অল্প কথায় সঠিক প্রশ্ন তৈরি হয় (প্রতি রিকোয়েস্টের টোকেন সাইজ প্রায় <b>৫০% কমানো হয়েছে</b>)।
+                </p>
+                <p className="font-bangla">
+                  ২. <b>একাধিক এপিআই কী রোটেশন:</b> লিমিট শেষ হওয়া চিরতরে সমাধান করতে অ্যাডমিন প্যানেলের <b>"সেটিংস ও নোটিশ (Bulletins & Settings)"</b> মেন্যুর ভেতর <b>"Gemini API Keys"</b> ট্যাবে গিয়ে ৪-৫টি সম্পূর্ণ ফ্রি ব্যাকআপ এপিআই কী এড করে রাখুন। কোনো কী লিমিট বা হারের মুখোমুখি হলে সিস্টেম স্বয়ংক্রিয়ভাবে পরবর্তী ব্যাকআপ কীতে সুইচ করে কাজ সচল রাখবে!
+                </p>
+              </div>
+
               <p className="text-slate-400 text-xs">
                 আলাদা টাইপ করা ছাড়া সরাসরি Gemini কৃত্রিম বুদ্ধিমত্তা ব্রেইন ব্যবহার করে আপনার সিলেক্টকৃত টপিক ও বিষয়ের ওপর সুন্দর বাংলা সাধারণ জ্ঞান, ইতিহাস বা বিসিএস লেভেলের এমসিকিউ জেনারেট করে নিন।
               </p>

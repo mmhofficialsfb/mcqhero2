@@ -39,6 +39,8 @@ export interface Course {
   live: boolean;
   price?: number;
   promoPrice?: number;
+  pdfUrl?: string;
+  pdfTitle?: string;
 }
 
 export interface RecentInfo {
@@ -172,4 +174,15 @@ export interface QuestionReport {
   subject?: string;
   timestamp?: any;
 }
+
+export interface JobCircular {
+  id?: string;
+  title: string;
+  vacancies: string;
+  deadline: string;
+  pdfUrl?: string;
+  imgUrl?: string;
+  createdAt?: any;
+}
+
 

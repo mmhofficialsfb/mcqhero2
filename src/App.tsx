@@ -20,7 +20,8 @@ import {
   Calendar,
   Flag,
   ShieldAlert,
-  PhoneCall
+  PhoneCall,
+  Briefcase
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import {
@@ -54,6 +55,9 @@ import ExamRoutineManage from "./components/ExamRoutineManage";
 import QuestionReportManage from "./components/QuestionReportManage";
 import ActivityLogManage, { logActivity } from "./components/ActivityLogManage";
 import ContactManage from "./components/ContactManage";
+import QuizPosterGenerator from "./components/QuizPosterGenerator";
+import JobCircularManage from "./components/JobCircularManage";
+
 
 // Interfaces
 import {
@@ -73,7 +77,7 @@ import {
 export default function App() {
   // Navigation & UI States
   const [activeTab, setActiveTab] = useState<
-    "dashboard" | "questions" | "users" | "resources" | "billing" | "exams" | "settings" | "smartboard" | "routine" | "reports" | "contact"
+    "dashboard" | "questions" | "users" | "resources" | "billing" | "exams" | "settings" | "smartboard" | "routine" | "reports" | "contact" | "quiz" | "circular"
   >("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -714,18 +718,22 @@ export default function App() {
         {
           id: "course-1",
           title: "বিসিএস প্রিলিমিনারি স্পেশাল মাস্টারব্যাচ",
-          desc: "সম্পূর্ণ সিলেবাস ভিত্তিক ৩০০০+ কোয়েশ্চেন সলভিং ক্লাস ও গাইডলাইন",
+          desc: "সম্পূর্ণ সিলেবাস ভিত্তিক ৩০০০+ কোয়েশ্চেন সলভিং ক্লাস, গাইডলাইন এবং প্রতিটি কোর্সের জন্য আলাদা পিডিএফ লেকচার শিট প্রদান করা হবে।",
           access: "premium",
           status: "running",
-          live: true
+          live: true,
+          pdfUrl: "https://example.com/bcs-masterclass-syllabus.pdf",
+          pdfTitle: "বিসিএস মাস্টারব্যাচ সিলেবাস ও লেকচার প্ল্যান"
         },
         {
           id: "course-2",
           title: "Primary 100-Day Flash Course",
-          desc: "প্রাথমিক শিক্ষক সাজেশনের সেরা মডেল টেস্ট সিরিজ",
+          desc: "প্রাথমিক শিক্ষক সাজেশনের সেরা মডেল টেস্ট সিরিজ ও প্রতিটি মডেল টেস্টের বিস্তারিত ব্যাখ্যা সহ পিডিএফ ডাউনলোডের সুবিধা।",
           access: "free",
           status: "running",
-          live: false
+          live: false,
+          pdfUrl: "https://example.com/primary-100day-plan.pdf",
+          pdfTitle: "১০০ দিনের কমপ্লিট স্টাডি প্ল্যান"
         }
       ];
       localStorage.setItem("local_courses", JSON.stringify(defaultCourses));
@@ -1022,10 +1030,12 @@ export default function App() {
   const allNavigationItems = [
     { id: "dashboard", label: "ড্যাশবোর্ড তথ্য", icon: LayoutDashboard },
     { id: "questions", label: "কোয়েশ্চন ব্যাংক", icon: HelpCircle },
+    { id: "quiz", label: "ফেসবুক কুইজ জেনারেটর", icon: Sparkles },
     { id: "reports", label: "সংশোধন রিপোর্ট", icon: Flag, badge: questionReports.filter(r => r.status !== "resolved").length },
     { id: "smartboard", label: "স্মার্টবোর্ড ক্লাস স্লাইডার", icon: Presentation },
     { id: "users", label: "শিক্ষার্থী ডাটাবেজ", icon: UsersIcon },
     { id: "resources", label: "পিডিএফ ও ব্যানার", icon: FolderLock },
+    { id: "circular", label: "জব সার্কুলার", icon: Briefcase },
     { id: "billing", label: "পেমেন্ট অনুমোদন", icon: CreditCard, badge: payments.filter(p => p.status === "pending" || !p.status).length },
     { id: "exams", label: "লাইভ মডেল টেস্ট", icon: Timer },
     { id: "routine", label: "পরীক্ষার রুটিন", icon: Calendar },
@@ -1035,7 +1045,7 @@ export default function App() {
   ] as const;
 
   const navigationItems = userProfile?.role === "moderator"
-    ? allNavigationItems.filter((item) => item.id === "questions" || item.id === "smartboard" || item.id === "reports")
+    ? allNavigationItems.filter((item) => item.id === "questions" || item.id === "quiz" || item.id === "smartboard" || item.id === "reports")
     : allNavigationItems;
 
   // Render checks under active maintenance
@@ -1406,6 +1416,16 @@ export default function App() {
                 />
               )}
 
+              {activeTab === "quiz" && (
+                <QuizPosterGenerator
+                  categories={categories}
+                  subcategories={subcategories}
+                  questions={questions}
+                  triggerReload={triggerReload}
+                  isSandboxMode={isSandboxMode}
+                />
+              )}
+
               {activeTab === "smartboard" && (
                 <SmartboardGenerator
                   categories={categories}
@@ -1425,6 +1445,10 @@ export default function App() {
 
               {userProfile?.role !== "moderator" && activeTab === "resources" && (
                 <ResourceManage triggerReload={triggerReload} isSandboxMode={isSandboxMode} />
+              )}
+
+              {userProfile?.role !== "moderator" && activeTab === "circular" && (
+                <JobCircularManage triggerReload={triggerReload} isSandboxMode={isSandboxMode} />
               )}
 
               {userProfile?.role !== "moderator" && activeTab === "billing" && (

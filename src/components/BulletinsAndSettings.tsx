@@ -221,6 +221,8 @@ export default function BulletinsAndSettings({
   const [courseLive, setCourseLive] = useState(true);
   const [coursePrice, setCoursePrice] = useState("");
   const [coursePromoPrice, setCoursePromoPrice] = useState("");
+  const [coursePdfUrl, setCoursePdfUrl] = useState("");
+  const [coursePdfTitle, setCoursePdfTitle] = useState("");
   const [editingCourseId, setEditingCourseId] = useState<string | null>(null);
 
   // 2. Groups (Categories) State
@@ -647,6 +649,8 @@ export default function BulletinsAndSettings({
         live: courseLive,
         price: coursePrice ? Number(coursePrice) : 0,
         promoPrice: coursePromoPrice ? Number(coursePromoPrice) : 0,
+        pdfUrl: coursePdfUrl.trim(),
+        pdfTitle: coursePdfTitle.trim(),
       };
 
       if (isSandboxMode) {
@@ -685,6 +689,8 @@ export default function BulletinsAndSettings({
       setCourseDesc("");
       setCoursePrice("");
       setCoursePromoPrice("");
+      setCoursePdfUrl("");
+      setCoursePdfTitle("");
       setEditingCourseId(null);
       triggerReload();
     } catch (err: any) {
@@ -1503,6 +1509,36 @@ export default function BulletinsAndSettings({
                 </div>
               )}
 
+              {/* PDF Attachments Input section */}
+              <div className="p-3.5 bg-slate-900/40 rounded-xl border border-slate-700/35 space-y-3 animate-fade-in">
+                <span className="text-teal-400 text-[11px] font-semibold block flex items-center gap-1.5">
+                  <FileText className="w-4 h-4" />
+                  কোর্স রিসোর্স বা লেকচার শিট (PDF Attachment)
+                </span>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-slate-300 text-[10px] uppercase font-bold block mb-1">পিডিএফ টাইটেল</label>
+                    <input
+                      type="text"
+                      value={coursePdfTitle}
+                      onChange={(e) => setCoursePdfTitle(e.target.value)}
+                      placeholder="যেমন: লেকচার শিট - ১"
+                      className="w-full bg-slate-950 border border-slate-750 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-500 h-[36px]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-slate-300 text-[10px] uppercase font-bold block mb-1">ড্রাইভ লিংক বা PDF URL</label>
+                    <input
+                      type="url"
+                      value={coursePdfUrl}
+                      onChange={(e) => setCoursePdfUrl(e.target.value)}
+                      placeholder="https://drive.google.com/..."
+                      className="w-full bg-slate-950 border border-slate-750 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-teal-500 h-[36px]"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex items-center gap-2">
                 <button
                   type="submit"
@@ -1523,6 +1559,8 @@ export default function BulletinsAndSettings({
                       setCourseLive(true);
                       setCoursePrice("");
                       setCoursePromoPrice("");
+                      setCoursePdfUrl("");
+                      setCoursePdfTitle("");
                     }}
                     className="bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white font-bold text-xs py-2.5 px-3 rounded-lg h-[40px] cursor-pointer"
                   >
@@ -1551,6 +1589,18 @@ export default function BulletinsAndSettings({
                             মূল্য: ৳{c.price || 0} {c.promoPrice ? `(অফার: ৳${c.promoPrice})` : ""}
                           </span>
                         )}
+                        {c.pdfUrl && (
+                          <a
+                            href={c.pdfUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 border border-amber-500/25 px-1 rounded text-[9px] flex items-center gap-0.5 transition-colors font-semibold"
+                            title={c.pdfTitle || "PDF Link"}
+                          >
+                            <FileText className="w-2.5 h-2.5" />
+                            PDF: {c.pdfTitle || "ডাউনলোড করুন"}
+                          </a>
+                        )}
                       </span>
                     </div>
                     <div className="flex items-center gap-1.5">
@@ -1564,6 +1614,8 @@ export default function BulletinsAndSettings({
                           setCourseLive(c.live);
                           setCoursePrice(c.price ? String(c.price) : "");
                           setCoursePromoPrice(c.promoPrice ? String(c.promoPrice) : "");
+                          setCoursePdfUrl(c.pdfUrl || "");
+                          setCoursePdfTitle(c.pdfTitle || "");
                         }}
                         className="text-teal-400 hover:text-white hover:bg-teal-500/10 p-1.5 rounded transition-colors"
                         title="সম্পাদনা করুন"
